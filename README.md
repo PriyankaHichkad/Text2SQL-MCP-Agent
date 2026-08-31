@@ -149,3 +149,15 @@ pytest
 - 🤖 [Google Gemini API](https://ai.google.dev/) — LLM reasoning & SQL query generation (Free Tier)
 - 🧠 [SentenceTransformers](https://www.sbert.net/) — Local CPU vector embeddings & RAG
 
+---
+
+## 📚 References & State of the Art (SOTA) Inspiration
+
+This project draws inspiration from leading Text-to-SQL research, benchmark surveys, and enterprise system designs:
+
+- 📖 [HKUST NL2SQL Handbook (TKDE'25 / VLDB'24)](https://github.com/HKUSTDial/NL2SQL_Handbook) — A comprehensive survey of Text-to-SQL in the era of LLMs, 3-stage pipeline decomposition (Pre-processing, Translation, Post-processing), and execution accuracy evaluation frameworks.
+- 🤖 [Wren AI (Canner)](https://github.com/Canner/WrenAI) — Open-source AI agent for data warehouses with governed semantic engines and dynamic database adapters.
+- 🎓 [Text2SQL with LLMs](https://github.com/kavyabammidi/text2sql) — Few-shot exemplar retrieval, SQLGlot AST transpilation, and evaluation paradigms.
+- 📊 [Awesome Generative AI Guide (Text-to-SQL Analytics)](https://github.com/aishwaryanr/awesome-generative-ai-guide/tree/main/interview_prep/system-design/text-to-sql-analytics) — 5-layer AI system design spine and Spider 2.0 evaluation benchmarks.
+
+

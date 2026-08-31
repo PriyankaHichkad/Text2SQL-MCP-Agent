@@ -1,6 +1,7 @@
 from src.graph.state import AgentState
 from src.knowledge.schema_linker import SchemaLinker
 from src.knowledge.semantic_layer import SemanticLayer
+from src.knowledge.exemplars import ExemplarRetriever
 from src.execution.validator import SQLValidator
 from src.execution.sandbox import QuerySandbox
 from src.models.router import LLMRouter
@@ -11,6 +12,7 @@ class Text2SQLGraphNodes:
         self.db_path = db_path
         self.linker = SchemaLinker()
         self.semantic_layer = SemanticLayer()
+        self.exemplar_retriever = ExemplarRetriever()
         self.validator = SQLValidator(dialect="duckdb")
         self.sandbox = QuerySandbox(db_path=db_path)
         self.llm = llm_router or LLMRouter()
@@ -22,7 +24,7 @@ class Text2SQLGraphNodes:
         return state
 
     def generate_sql_node(self, state: AgentState) -> AgentState:
-        """Node 2: Draft SQL query using LLM"""
+        """Node 2: Draft SQL query using LLM and dynamic few-shot exemplars"""
         catalog_str = ""
         for tbl_name, tbl_info in state.pruned_catalog.items():
             catalog_str += f"Table `{tbl_name}`:\n"
@@ -34,11 +36,15 @@ class Text2SQLGraphNodes:
         if state.join_hints:
             join_hints_str = "Candidate Join Relationships:\n" + "\n".join([f"- {h}" for h in state.join_hints]) + "\n\n"
 
+        exemplars_str = self.exemplar_retriever.retrieve_exemplars(state.question, top_k=2)
+
         prompt = f"""You are an expert SQL Data Analyst writing DuckDB SQL queries.
 Given the natural language business question, write a SINGLE, read-only SELECT SQL query.
 
 {catalog_str}
 {join_hints_str}{state.semantic_context}
+{exemplars_str}
+
 Question: "{state.question}"
 
 Rules:
@@ -63,9 +69,10 @@ Rules:
             return state
 
         # Execute in sandbox
-        success, df_result, _, exec_err = self.sandbox.execute_query(clean_sql, connection=connection)
+        success, df_result, clean_sql_executed, exec_err = self.sandbox.execute_query(clean_sql, connection=connection)
         state.execution_success = success
         state.result_df = df_result
+        state.clean_sql = clean_sql_executed
         state.execution_error = exec_err
 
         return state

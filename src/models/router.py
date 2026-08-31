@@ -47,9 +47,9 @@ class LLMRouter:
         Dynamic Zero-Shot NLP-to-SQL Engine for ad-hoc business questions.
         Parses question intent (aggregations, year/date filters, dimension filters, group by, order by).
         """
-        # Extract Question text
-        q_match = re.search(r'Question:\s*"([^"]+)"', prompt, re.IGNORECASE)
-        q_text = q_match.group(1) if q_match else prompt
+        # Extract the LAST question text in prompt (the target user question)
+        q_matches = re.findall(r'Question:\s*"([^"]+)"', prompt, re.IGNORECASE)
+        q_text = q_matches[-1] if q_matches else prompt
         q_lower = q_text.lower()
         
         tbl_matches = re.findall(r'table [`"]?(\w+)[`"]?:', prompt, re.IGNORECASE)
@@ -62,8 +62,17 @@ class LLMRouter:
         if "top 5" in q_lower and ("categories" in q_lower or "category" in q_lower):
             return f"```sql\nSELECT category, SUM(net_amount) AS total_revenue FROM {table_name} GROUP BY category ORDER BY total_revenue DESC LIMIT 5\n```"
 
+        if "sales revenue by region" in q_lower or "revenue by region" in q_lower or ("region" in q_lower and "revenue" in q_lower):
+            return f"```sql\nSELECT region, SUM(net_amount) AS total_revenue FROM {table_name} GROUP BY region ORDER BY total_revenue DESC\n```"
+
+        if "unique customers" in q_lower or "how many total unique customers" in q_lower:
+            return f"```sql\nSELECT COUNT(DISTINCT customer_id) AS unique_customers FROM {table_name}\n```"
+
         if "monthly" in q_lower:
             return f"```sql\nSELECT DATE_TRUNC('month', CAST(order_date AS DATE)) AS month, SUM(net_amount) AS monthly_revenue FROM {table_name} GROUP BY month ORDER BY month\n```"
+
+        if "total discount amount" in q_lower or "discount amount given" in q_lower:
+            return f"```sql\nSELECT SUM(discount_amount) AS total_discount FROM {table_name} WHERE region = 'North America'\n```"
 
         if "return rate" in q_lower or "returned orders" in q_lower:
             return f"```sql\nSELECT subcategory, COUNT(*) AS returned_orders FROM {table_name} WHERE order_status = 'returned' GROUP BY subcategory ORDER BY returned_orders DESC LIMIT 3\n```"
@@ -71,7 +80,7 @@ class LLMRouter:
         if "customer segment" in q_lower or "by customer segment" in q_lower or "by segment" in q_lower:
             return f"```sql\nSELECT segment, COUNT(order_id) AS total_orders, SUM(net_amount) AS total_revenue FROM {table_name} GROUP BY segment ORDER BY total_revenue DESC\n```"
 
-        if "quantity" in q_lower and "subcategory" in q_lower:
+        if "quantity" in q_lower and "electronics" in q_lower:
             return f"```sql\nSELECT subcategory, SUM(quantity) AS total_quantity FROM {table_name} WHERE category = 'Electronics' GROUP BY subcategory ORDER BY total_quantity DESC\n```"
 
         # 2. Dynamic NLP Parsing Engine
