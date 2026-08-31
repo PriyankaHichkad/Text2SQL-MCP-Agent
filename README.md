@@ -2,11 +2,6 @@
 
 > **A production-grade, zero-cost Text-to-SQL AI agent and Streamlit copilot with native MCP server integration, dynamic CSV schema linking, and read-only AST safety guardrails.**
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![DuckDB](https://img.shields.io/badge/DuckDB-Analytics-yellow.svg)](https://duckdb.org/)
-[![Model Context Protocol](https://img.shields.io/badge/MCP-Standard-green.svg)](https://modelcontextprotocol.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
-
 ---
 
 ## 🌟 Overview
@@ -140,6 +135,14 @@ pytest
 
 ---
 
-## 📜 License
+## 🛠️ Tools & Technologies
 
-Distributed under the MIT License. See `LICENSE` for details.
+- 🐍 [Python 3.10+](https://www.python.org/downloads/) — Core programming language
+- 🦆 [DuckDB](https://duckdb.org/) — In-memory analytical database engine
+- ⚡ [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — Open protocol for AI tools & context
+- 🚀 [FastMCP](https://github.com/jlowin/fastmcp) — High-level Python MCP server framework
+- 📊 [Streamlit](https://streamlit.io/) — Interactive web application interface
+- 🛡️ [SQLGlot](https://github.com/tobymao/sqlglot) — SQL parser, AST validator & transpiler
+- 🤖 [Google Gemini API](https://ai.google.dev/) — LLM reasoning & SQL query generation (Free Tier)
+- 🧠 [SentenceTransformers](https://www.sbert.net/) — Local CPU vector embeddings & RAG
+
