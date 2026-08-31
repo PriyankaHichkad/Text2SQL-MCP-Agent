@@ -38,6 +38,10 @@ class SQLValidator:
             clean_sql = clean_sql[:-3]
         clean_sql = clean_sql.strip()
 
+        # Remove trailing semicolons
+        while clean_sql.endswith(";"):
+            clean_sql = clean_sql[:-1].strip()
+
         try:
             parsed_expressions = sqlglot.parse(clean_sql, read=self.dialect)
         except Exception as e:
@@ -61,7 +65,6 @@ class SQLValidator:
 
         # Check JOIN ON clauses (prevent cartesian products)
         for join_node in parsed_ast.find_all(exp.Join):
-            # Allow implicit joins if USING/ON exists or if cross join is explicit
             if not join_node.args.get("on") and not join_node.args.get("using") and join_node.kind != "CROSS":
                 return False, clean_sql, "Safety Check Failed: JOIN statement missing ON or USING clause."
 

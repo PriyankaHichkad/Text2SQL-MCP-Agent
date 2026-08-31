@@ -21,8 +21,11 @@ class QuerySandbox:
         if not is_valid:
             return False, pd.DataFrame(), clean_sql, val_error
 
-        # Ensure LIMIT clause exists to prevent overwhelming memory
-        clean_sql_no_semi = clean_sql.rstrip(";").strip()
+        # Strip any trailing semicolons and whitespace robustly to prevent '; LIMIT' syntax errors
+        clean_sql_no_semi = clean_sql.strip()
+        while clean_sql_no_semi.endswith(";"):
+            clean_sql_no_semi = clean_sql_no_semi[:-1].strip()
+
         if "LIMIT" not in clean_sql_no_semi.upper():
             sql_to_run = f"{clean_sql_no_semi} LIMIT {self.max_rows}"
         else:
@@ -37,6 +40,6 @@ class QuerySandbox:
                 with duckdb.connect(self.db_path, read_only=True) as con:
                     df = con.execute(sql_to_run).fetchdf()
             
-            return True, df, clean_sql, ""
+            return True, df, clean_sql_no_semi, ""
         except Exception as e:
-            return False, pd.DataFrame(), clean_sql, f"Database Execution Error: {str(e)}"
+            return False, pd.DataFrame(), clean_sql_no_semi, f"Database Execution Error: {str(e)}"
