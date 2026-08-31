@@ -10,7 +10,8 @@
 
 ### 🔑 Key Features
 - **100% Free & Open-Source Stack**: Operates with zero paid API costs using Google Gemini Free Tier, local Ollama, DuckDB, and CPU SentenceTransformers.
-- **Dynamic CSV Schema Ingestion**: Upload single or multiple CSV files via Streamlit or MCP; DuckDB automatically infers schemas on the fly (`read_csv_auto`).
+- **Dynamic Multi-Table CSV Ingestion**: Drag-and-drop multiple CSV files via Streamlit or MCP; DuckDB automatically registers each file as a separate queryable table.
+- **Automated Multi-Table JOIN Discovery**: Automatically detects shared Primary/Foreign Key relationships across tables (e.g. `orders.customer_id <-> customers.customer_id`, `orders.product_id <-> products.product_id`) and injects candidate join conditions into LLM prompt context.
 - **Value-Aware Categorical Linking**: Matches literal text values (e.g. `'Consumer'`, `'Seattle'`) against sample categorical values across database columns.
 - **Smart AI Chart Recommendation**: Automatically filters out non-trackable ID columns (`_id`, `_key`, `code`) from Y-axis metric aggregations.
 - **One-Click Query & Data Exports**: Export clean `.sql` query files, `.csv` result tables, and standard `.json` MCP payloads directly from the Streamlit UI.
