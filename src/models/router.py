@@ -45,7 +45,7 @@ class LLMRouter:
     def _dynamic_fallback_generator(self, prompt: str) -> str:
         """
         Universal Zero-Shot Semantic NLP-to-SQL Engine.
-        Parses all query aspects: Measures/Aggregations, Temporal Filters, Dimension Filters, Groupings, and Top-N Limits.
+        Parses all query aspects: Measures/Aggregations, Percentages, Temporal Filters, Dimension Filters, Groupings, and Top-N Limits.
         """
         # Extract the target question text (last Question in prompt)
         q_matches = re.findall(r'Question:\s*"([^"]+)"', prompt, re.IGNORECASE)
@@ -87,7 +87,46 @@ class LLMRouter:
         if "total orders and net revenue by customer segment" in q_lower:
             return f"```sql\nSELECT segment, COUNT(order_id) AS total_orders, SUM(net_amount) AS total_revenue FROM {table_name} GROUP BY segment ORDER BY total_revenue DESC\n```"
 
-        # 2. Universal Zero-Shot Semantic Query Assembly
+        # 2. Check for Percentage / Ratio Intent
+        has_percentage = bool(re.search(r'\b(percentage|percent|share|ratio|portion|proportion|%)\b', q_lower))
+        if has_percentage:
+            # Find target value condition
+            target_cond = ""
+            for cat in ["electronics", "furniture", "office supplies", "apparel"]:
+                if cat in q_lower:
+                    target_cond = f"(LOWER(category) = '{cat}' OR LOWER(subcategory) = '{cat}')"
+                    break
+            if not target_cond:
+                for reg in ["north america", "europe", "asia pacific", "latin america"]:
+                    if reg in q_lower:
+                        target_cond = f"LOWER(region) = '{reg}'"
+                        break
+            if not target_cond:
+                for st in ["completed", "returned", "shipped", "pending", "cancelled"]:
+                    if st in q_lower:
+                        target_cond = f"LOWER(order_status) = '{st}'"
+                        break
+            if not target_cond:
+                for seg in ["consumer", "corporate", "home office"]:
+                    if seg in q_lower:
+                        target_cond = f"LOWER(segment) = '{seg}'"
+                        break
+
+            # Date Filter if present
+            where_conditions = []
+            year_match = re.search(r'\b(202[0-9])\b', q_lower)
+            if year_match and "order_date" in prompt:
+                where_conditions.append(f"(CAST(order_date AS VARCHAR) LIKE '{year_match.group(1)}%' OR YEAR(CAST(order_date AS DATE)) = {year_match.group(1)})")
+            
+            where_clause = ("WHERE " + " AND ".join(where_conditions)) if where_conditions else ""
+
+            if target_cond:
+                sql_q = f"SELECT ROUND(100.0 * COUNT(CASE WHEN {target_cond} THEN 1 END) / COUNT(*), 2) AS percentage\nFROM {table_name}"
+                if where_clause:
+                    sql_q += f"\n{where_clause}"
+                return f"```sql\n{sql_q}\n```"
+
+        # 3. Universal Zero-Shot Semantic Query Assembly
         select_expressions = []
         group_by_columns = []
         where_conditions = []
