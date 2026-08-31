@@ -80,7 +80,7 @@ class LLMRouter:
         if "customer segment" in q_lower or "by customer segment" in q_lower or "by segment" in q_lower:
             return f"```sql\nSELECT segment, COUNT(order_id) AS total_orders, SUM(net_amount) AS total_revenue FROM {table_name} GROUP BY segment ORDER BY total_revenue DESC\n```"
 
-        if "quantity" in q_lower and "electronics" in q_lower:
+        if "quantity" in q_lower and "electronics" in q_lower and "subcategory" in q_lower:
             return f"```sql\nSELECT subcategory, SUM(quantity) AS total_quantity FROM {table_name} WHERE category = 'Electronics' GROUP BY subcategory ORDER BY total_quantity DESC\n```"
 
         # 2. Dynamic NLP Parsing Engine
@@ -91,7 +91,13 @@ class LLMRouter:
         limit_clause = ""
         
         # Aggregation / Measure Detection
-        if re.search(r'\b(number of|how many|count of|total count|order count|orders received)\b', q_lower):
+        if re.search(r'\b(quantity|total quantity|units|units sold|items sold|total items)\b', q_lower):
+            if "quantity" in prompt:
+                select_clause = "SUM(quantity) AS total_quantity"
+            else:
+                select_clause = "COUNT(*) AS total_quantity"
+
+        elif re.search(r'\b(number of|how many|count of|total count|order count|orders received|total orders)\b', q_lower):
             if "customer" in q_lower:
                 select_clause = "COUNT(DISTINCT customer_id) AS unique_customers"
             elif "order" in q_lower or "orders" in q_lower:
@@ -105,7 +111,7 @@ class LLMRouter:
             else:
                 select_clause = "SUM(quantity * unit_price) AS total_revenue"
                 
-        elif re.search(r'\b(average order value|avg order|average revenue|aov)\b', q_lower):
+        elif re.search(r'\b(average order value|avg order|average revenue|aov|average|avg)\b', q_lower):
             select_clause = "AVG(net_amount) AS avg_order_value" if "net_amount" in prompt else "AVG(quantity * unit_price) AS avg_order_value"
             
         elif re.search(r'\b(discount|total discount)\b', q_lower):
