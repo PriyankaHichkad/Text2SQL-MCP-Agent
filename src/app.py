@@ -1,8 +1,13 @@
+import sys
+import os
+
+# Add root directory to sys.path for Streamlit Cloud & local module imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import streamlit as st
 import pandas as pd
 import duckdb
 import plotly.express as px
-import os
 
 from src.graph.workflow import Text2SQLWorkflow
 from src.knowledge.catalog import SchemaCatalog
