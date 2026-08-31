@@ -10,6 +10,7 @@ import pandas as pd
 import duckdb
 import plotly.express as px
 import re
+import sqlglot
 
 from src.graph.workflow import Text2SQLWorkflow
 from src.knowledge.catalog import SchemaCatalog
@@ -20,17 +21,30 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS styling
+# Custom CSS styling for full-width code blocks & pre-wrap wrapping
 st.markdown("""
 <style>
     .main-title { font-size: 2.2rem; font-weight: 700; color: #1E88E5; }
     .sub-title { font-size: 1.1rem; color: #555555; margin-bottom: 20px; }
-    .stCodeBlock { border-radius: 8px; }
+    .stCodeBlock { border-radius: 8px; width: 100% !important; }
+    .stCodeBlock code { white-space: pre-wrap !important; word-break: break-word !important; }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">⚡ Text2SQL-MCP-Agent</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">Autonomous Text-to-SQL Analytics Agent over Data Warehouses & Dynamic CSVs</div>', unsafe_allow_html=True)
+
+# Helper function to format SQL into broad multi-line formatted string
+def format_pretty_sql(sql_str: str) -> str:
+    if not sql_str:
+        return ""
+    try:
+        return sqlglot.transpile(sql_str, read="duckdb", write="duckdb", pretty=True)[0]
+    except Exception:
+        res = sql_str
+        for kw in ["FROM", "LEFT JOIN", "INNER JOIN", "JOIN", "WHERE", "GROUP BY", "ORDER BY", "LIMIT"]:
+            res = re.sub(rf'\b({kw})\b', r'\n\1', res, flags=re.IGNORECASE)
+        return res.strip()
 
 # Helper function to detect ID columns
 def is_id_column(col_name: str) -> bool:
@@ -52,7 +66,6 @@ if "con" not in st.session_state:
 with st.sidebar:
     st.header("📂 Data Ingestion")
     
-    # Custom File Uploader
     uploaded_files = st.file_uploader(
         "Upload CSV File(s)", 
         type=["csv"], 
@@ -80,7 +93,7 @@ with st.sidebar:
 # Main Chat & Query Interface
 question = st.text_input(
     "💬 Ask a natural language business question:",
-    placeholder="e.g., Show top 5 product categories by net revenue OR What is total sales by region?"
+    placeholder="e.g., Show top 5 product categories by net revenue OR What is net amount that europe got from furniture?"
 )
 
 if question:
@@ -90,35 +103,38 @@ if question:
 
     st.markdown("### 📊 Agent Results")
     
+    # 1. Natural Language Answer (Full Width)
+    if state.execution_success:
+        st.success(state.final_answer)
+    else:
+        st.error(state.final_answer)
+
+    # 2. Broad Full-Width Validated SQL Query Block
+    st.markdown("#### 📜 Validated SQL Query")
+    raw_sql = state.clean_sql or state.generated_sql
+    formatted_sql = format_pretty_sql(raw_sql)
+    st.code(formatted_sql, language="sql")
+    st.caption(f"Confidence Score: `{state.confidence_score}` | Retries: `{state.retry_count}`")
+
+    st.markdown("---")
+
+    # 3. Two-Column Layout for Exports and Data Results
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown("#### Natural Language Answer")
-        if state.execution_success:
-            st.success(state.final_answer)
-        else:
-            st.error(state.final_answer)
-            
-        st.markdown("#### Validated SQL Query")
-        clean_sql = state.clean_sql or state.generated_sql
-        st.code(clean_sql, language="sql")
-        
-        st.caption(f"Confidence Score: `{state.confidence_score}` | Retries: `{state.retry_count}`")
-
-        # 📥 One-Click Export Buttons Section
         st.markdown("#### 📥 One-Click Exports")
         exp_c1, exp_c2, exp_c3 = st.columns(3)
         
-        # 1. SQL Query Export (.sql file format)
+        # SQL Query Export (.sql file)
         exp_c1.download_button(
             label="📄 Export Query (.sql)",
-            data=clean_sql,
+            data=formatted_sql,
             file_name="executed_query.sql",
             mime="text/plain",
-            help="Exports the clean, validated SQL query as an .sql file"
+            help="Exports the clean, formatted SQL query as an .sql file"
         )
 
-        # 2. Tabular Data Export (.csv file format)
+        # Tabular Data Export (.csv file)
         if state.execution_success and state.result_df is not None and not state.result_df.empty:
             exp_c2.download_button(
                 label="📊 Export Data (.csv)",
@@ -128,11 +144,11 @@ if question:
                 help="Exports the executed result table as a .csv file"
             )
 
-            # 3. MCP JSON Payload Export (.json file format)
+            # MCP JSON Payload Export (.json file)
             mcp_payload = {
                 "question": question,
                 "answer": state.final_answer,
-                "sql_query": clean_sql,
+                "sql_query": formatted_sql,
                 "execution_success": state.execution_success,
                 "confidence_score": state.confidence_score,
                 "rows_returned": len(state.result_df),
@@ -147,7 +163,7 @@ if question:
             )
 
     with col2:
-        st.markdown("#### Tabular Query Results")
+        st.markdown("#### 📋 Tabular Query Results")
         if state.execution_success and state.result_df is not None and not state.result_df.empty:
             df = state.result_df
             st.dataframe(df, use_container_width=True)
