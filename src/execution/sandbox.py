@@ -21,22 +21,24 @@ class QuerySandbox:
         if not is_valid:
             return False, pd.DataFrame(), clean_sql, val_error
 
-        # Strip any trailing semicolons and whitespace robustly to prevent '; LIMIT' syntax errors
+        # Strip any trailing semicolons and whitespace robustly
         clean_sql_no_semi = clean_sql.strip()
         while clean_sql_no_semi.endswith(";"):
             clean_sql_no_semi = clean_sql_no_semi[:-1].strip()
 
-        if "LIMIT" not in clean_sql_no_semi.upper():
+        # Do NOT append LIMIT if the query is a single scalar aggregate (COUNT, SUM, AVG) without GROUP BY
+        sql_upper = clean_sql_no_semi.upper()
+        is_scalar_agg = any(fn in sql_upper for fn in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("]) and "GROUP BY" not in sql_upper
+
+        if not is_scalar_agg and "LIMIT" not in sql_upper:
             sql_to_run = f"{clean_sql_no_semi} LIMIT {self.max_rows}"
         else:
             sql_to_run = clean_sql_no_semi
 
         try:
             if connection is not None:
-                # Use provided in-memory / uploaded DuckDB connection
                 df = connection.execute(sql_to_run).fetchdf()
             else:
-                # Open read-only connection to db_path
                 with duckdb.connect(self.db_path, read_only=True) as con:
                     df = con.execute(sql_to_run).fetchdf()
             

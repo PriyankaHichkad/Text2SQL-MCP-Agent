@@ -102,6 +102,15 @@ Return ONLY the repaired raw SQL query inside ```sql ... ``` code block.
             state.confidence_score = 0.9
             return state
 
+        # Scalar single-value results (e.g. COUNT, SUM, AVG)
+        if df.shape == (1, 1):
+            col_name = df.columns[0]
+            val = df.iloc[0, 0]
+            val_fmt = f"{val:,.2f}".rstrip('0').rstrip('.') if isinstance(val, float) else (f"{val:,}" if isinstance(val, int) else str(val))
+            state.final_answer = f"The result for **{state.question}** is **{val_fmt}** (`{col_name}`)."
+            state.confidence_score = 1.0
+            return state
+
         # Create quick natural language summary
         row_count = len(df)
         cols_str = ", ".join(df.columns.tolist())
