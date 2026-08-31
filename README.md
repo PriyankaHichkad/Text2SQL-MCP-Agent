@@ -11,7 +11,10 @@
 ### 🔑 Key Features
 - **100% Free & Open-Source Stack**: Operates with zero paid API costs using Google Gemini Free Tier, local Ollama, DuckDB, and CPU SentenceTransformers.
 - **Dynamic CSV Schema Ingestion**: Upload single or multiple CSV files via Streamlit or MCP; DuckDB automatically infers schemas on the fly (`read_csv_auto`).
-- **Multi-Table JOIN Discovery**: Automatically detects shared join keys across multiple uploaded CSV files (e.g. `orders.customer_id <-> customers.customer_id`).
+- **Value-Aware Categorical Linking**: Matches literal text values (e.g. `'Consumer'`, `'Seattle'`) against sample categorical values across database columns.
+- **Smart AI Chart Recommendation**: Automatically filters out non-trackable ID columns (`_id`, `_key`, `code`) from Y-axis metric aggregations.
+- **One-Click Query & Data Exports**: Export clean `.sql` query files, `.csv` result tables, and standard `.json` MCP payloads directly from the Streamlit UI.
+- **Automated Benchmark & Evals Suite (`evals/evaluate.py`)**: Includes a bundled <1MB benchmark dataset (`data/ecommerce_benchmark.csv`) and test harness evaluating Execution Accuracy (EX %) and latency.
 - **AST Safety Guardrails (`SQLGlot`)**: Statically parses SQL syntax trees to enforce single read-only `SELECT` queries and prevent SQL injection or cartesian products.
 - **Native Model Context Protocol (MCP)**: Exposes `@mcp.tool()` and `@mcp.resource()` endpoints so Claude Desktop, Antigravity IDE, Cursor, and AI agents can query the warehouse.
 - **Streamlit Web UI (`src/app.py`)**: Interactive web dashboard featuring CSV drag-and-drop, dynamic schema inspector, chat bar, SQL query viewer, and Plotly visual charts.

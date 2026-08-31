@@ -22,9 +22,11 @@ class QuerySandbox:
             return False, pd.DataFrame(), clean_sql, val_error
 
         # Ensure LIMIT clause exists to prevent overwhelming memory
-        sql_to_run = clean_sql
-        if "LIMIT" not in sql_to_run.upper():
-            sql_to_run = f"{sql_to_run} LIMIT {self.max_rows}"
+        clean_sql_no_semi = clean_sql.rstrip(";").strip()
+        if "LIMIT" not in clean_sql_no_semi.upper():
+            sql_to_run = f"{clean_sql_no_semi} LIMIT {self.max_rows}"
+        else:
+            sql_to_run = clean_sql_no_semi
 
         try:
             if connection is not None:
