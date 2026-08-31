@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "text2sql-mcp-agent"
+version = "0.1.0"
+description = "A production-grade, zero-cost Text-to-SQL AI agent and Streamlit copilot with native MCP server integration, dynamic CSV schema linking, and read-only AST safety guardrails."
+readme = "README.md"
+authors = [
+    { name = "Priyanka Hichkad" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "duckdb>=0.9.2",
+    "sqlglot>=20.0.0",
+    "mcp>=1.0.0",
+    "fastmcp>=0.1.0",
+    "streamlit>=1.30.0",
+    "pandas>=2.0.0",
+    "plotly>=5.18.0",
+    "sentence-transformers>=2.2.2",
+    "rank-bm25>=0.2.2",
+    "google-generativeai>=0.3.2",
+    "litellm>=1.20.0",
+    "pyyaml>=6.0.1",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0"
+]

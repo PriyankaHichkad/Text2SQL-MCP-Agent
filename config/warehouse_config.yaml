@@ -1,0 +1,12 @@
+# Warehouse Configuration
+database:
+  type: "duckdb"
+  default_path: "data/sample_warehouse.db"
+  read_only: true
+  max_rows_limit: 1000
+  timeout_seconds: 15
+
+guardrails:
+  allowed_statements: ["SELECT"]
+  forbidden_keywords: ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE", "ATTACH", "COPY", "EXEC", "EXECUTE"]
+  enforce_limit: true

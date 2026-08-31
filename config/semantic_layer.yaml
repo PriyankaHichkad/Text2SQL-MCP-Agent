@@ -1,0 +1,33 @@
+# Business Semantic Layer Dictionary
+# Maps natural language business terminology to governance-approved SQL calculations
+
+metrics:
+  revenue:
+    description: "Total net revenue after discounts"
+    sql: "SUM(quantity * unit_price - discount_amount)"
+    alias: ["net_revenue", "total_sales", "sales_amount"]
+
+  gross_revenue:
+    description: "Gross revenue before discounts"
+    sql: "SUM(quantity * unit_price)"
+    alias: ["gross_sales", "total_revenue_gross"]
+
+  avg_order_value:
+    description: "Average order size in currency"
+    sql: "AVG(quantity * unit_price - discount_amount)"
+    alias: ["aov", "average_ticket"]
+
+  total_units:
+    description: "Total quantity of products sold"
+    sql: "SUM(quantity)"
+    alias: ["volume", "items_sold"]
+
+  active_customers:
+    description: "Distinct customers who completed an order"
+    sql: "COUNT(DISTINCT customer_id)"
+    alias: ["customer_count", "buyer_count"]
+
+time_macros:
+  last_quarter: "order_date >= DATE_TRUNC('quarter', CURRENT_DATE - INTERVAL '3 months') AND order_date < DATE_TRUNC('quarter', CURRENT_DATE)"
+  ytd: "order_date >= DATE_TRUNC('year', CURRENT_DATE)"
+  q2_2025: "order_date >= '2025-04-01' AND order_date <= '2025-06-30'"
