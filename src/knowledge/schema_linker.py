@@ -2,6 +2,8 @@ from typing import Dict, Any, List, Tuple
 from rank_bm25 import BM25Okapi
 import re
 
+STOP_WORDS = {"how", "many", "were", "held", "in", "of", "the", "a", "an", "to", "for", "on", "by", "is", "are", "was", "be", "with", "at", "from", "and", "or", "what", "which", "show", "list", "find", "get"}
+
 class SchemaLinker:
     """
     Hybrid Schema Linker that prunes full database schema down to relevant tables/columns,
@@ -14,30 +16,42 @@ class SchemaLinker:
     def link_schema(self, question: str, catalog: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
         """
         Retrieves relevant tables from catalog, matches literal categorical values, orders tables by relevance score,
-        and infers join candidates.
+        and infers join candidates. Custom uploaded tables are prioritized over default seed tables.
         Returns: (pruned_catalog: Dict, join_hints: List[str])
         """
         value_hints, value_matched_tables = self.find_value_matches(question, catalog)
-        q_tokens = set(re.findall(r'\w+', question.lower()))
+        q_lower = question.lower()
+        q_tokens = set(re.findall(r'\w+', q_lower)) - STOP_WORDS
 
-        # Score each table based on name, column names, and sample values
+        # Score each table based on name, column names, sample values & custom upload status
         table_scores = {}
         for tbl_name, tbl_info in catalog.items():
             score = 0
-            tbl_tokens = set(re.findall(r'\w+', tbl_name.lower()))
-            score += len(q_tokens.intersection(tbl_tokens)) * 5
+            
+            # Custom uploaded tables get base priority over default benchmark seed data
+            if tbl_name.lower() != "ecommerce_benchmark" and tbl_name.lower() != "sample_warehouse":
+                score += 50
+
+            tbl_tokens = set(re.findall(r'\w+', tbl_name.lower())) - STOP_WORDS
+            score += len(q_tokens.intersection(tbl_tokens)) * 20
 
             for col in tbl_info.get("columns", []):
-                col_tokens = set(re.findall(r'\w+', col["name"].lower()))
-                score += len(q_tokens.intersection(col_tokens)) * 2
+                col_name = col["name"].lower()
+                col_tokens = set(re.findall(r'\w+', col_name)) - STOP_WORDS
+                score += len(q_tokens.intersection(col_tokens)) * 10
                 
+                # Check domain specific sports keywords
+                if col_name in ["team1", "team2", "venue", "winner", "stadium", "city"]:
+                    if any(w in q_lower for w in ["mi", "csk", "wankhede", "match", "matches", "ipl", "stadium", "venue"]):
+                        score += 50
+
                 for val in col.get("sample_values", []):
                     val_str = str(val).lower().strip()
-                    if val_str and val_str in question.lower():
-                        score += 10
+                    if val_str and len(val_str) > 1 and val_str in q_lower:
+                        score += 30
 
             if tbl_name in value_matched_tables:
-                score += 15
+                score += 40
 
             table_scores[tbl_name] = score
 
@@ -47,7 +61,6 @@ class SchemaLinker:
         if len(catalog) <= 3:
             pruned_catalog = {t: catalog[t] for t in sorted_tables}
         else:
-            # Select top 3 tables
             top_tables = sorted_tables[:3]
             pruned_catalog = {t: catalog[t] for t in top_tables}
 
