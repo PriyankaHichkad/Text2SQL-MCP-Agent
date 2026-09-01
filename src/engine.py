@@ -222,7 +222,7 @@ class LLMRouter:
         # Priority 1: Hugging Face Fine-Tuned Model Endpoint
         if self.hf_token and self.hf_repo:
             try:
-                from langchain_community.llms import HuggingFaceEndpoint
+                from langchain_huggingface import HuggingFaceEndpoint
                 self.llm = HuggingFaceEndpoint(
                     repo_id=self.hf_repo,
                     huggingfacehub_api_token=self.hf_token,
