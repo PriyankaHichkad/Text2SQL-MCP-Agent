@@ -10,15 +10,16 @@ load_dotenv()
 class LLMRouter:
     """
     Provider-agnostic router for LLM calls.
-    Primary: Google Gemini API (Free Tier via GEMINI_API_KEY)
+    Primary: Google Gemini API (Free Tier via GEMINI_API_KEY / GOOGLE_API_KEY)
     Fallback: Universal Zero-Shot Semantic NLP Engine for ad-hoc business queries & evals
     """
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-1.5-flash"):
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.model_name = model_name
         
         if self.api_key:
             try:
+                os.environ["GOOGLE_API_KEY"] = self.api_key
                 genai.configure(api_key=self.api_key)
                 self.gemini_model = genai.GenerativeModel(self.model_name)
             except Exception as e:
