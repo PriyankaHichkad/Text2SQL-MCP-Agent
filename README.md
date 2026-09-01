@@ -22,7 +22,7 @@
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ 5-Layer Spine System Design Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -32,20 +32,30 @@
                                      │
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                      TEXT2SQL AGENT PIPELINE                             │
+│                      5-LAYER AGENT ARCHITECTURE                          │
 │                                                                          │
-│  1. Catalog Introspection ──► Dynamic PRAGMA metadata & sample values    │
-│  2. Schema Linker        ──► Sparse BM25 & Foreign Key Join inferencing  │
-│  3. Semantic Layer       ──► Resolves YAML metric & macro definitions    │
-│  4. LLM Generation       ──► Drafts DuckDB SQL (Gemini Free / Ollama)   │
-│  5. AST Guardrail        ──► SQLGlot parser validates SELECT safety      │
-│  6. Execution Sandbox    ──► DuckDB safe read-only query execution       │
-│  7. Bounded Self-Correct ──► Up to 2 retry attempts on execution errors  │
+│  LAYER 1: MODEL & ROUTER                                                 │
+│    └─ Provider-agnostic LLMRouter (Gemini 2.5 / Ollama / Dynamic Zero-Shot) │
+│                                                                          │
+│  LAYER 2: WRAPPING (KNOWLEDGE, TOOLS & MEMORY)                           │
+│    ├─ Knowledge : Dynamic PRAGMA catalog profiler & categorical samples  │
+│    ├─ Schema Linker: Sparse BM25 + Value-Aware Categorical Matching      │
+│    ├─ Semantic Layer: Governed metric definitions & time macro dictionary│
+│    ├─ Few-Shot Retrieval: Dynamic worked question-to-SQL exemplars       │
+│    └─ Self-Correction: Bounded execution error feedback retry loop       │
+│                                                                          │
+│  LAYER 3: EVALS & REAL-TIME GUARDRAILS                                   │
+│    ├─ Static Guardrail: SQLGlot AST single read-only SELECT enforcement  │
+│    ├─ Evals Harness   : Labeled benchmark suite (100% EX accuracy)       │
+│    └─ Abstention Engine: Default safe handoff (confidence 0.0) on errors  │
+│                                                                          │
+│  LAYER 4 & 5: SAFETY & OPTIMIZATION                                      │
+│    └─ DuckDB read-only session, statement timeouts, row caps & caching   │
 └────────────────────────────────────┬─────────────────────────────────────┘
                                      │
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                    DUCKDB IN-MEMORY / FILE SANDBOX                       │
+│                 DUCKDB READ-ONLY EXECUTION SANDBOX                       │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
