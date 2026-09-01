@@ -13,7 +13,7 @@ class LLMRouter:
     """
     Provider-agnostic router for LLM calls.
     Primary: Google Gemini API (Free Tier via GEMINI_API_KEY / GOOGLE_API_KEY)
-    Fallback: Universal Zero-Shot Semantic NLP Engine for ad-hoc business queries & evals
+    Fallback: Universal Zero-Shot Schema-Driven NLP Compiler for ad-hoc queries over dynamic CSVs.
     """
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -55,12 +55,12 @@ class LLMRouter:
             except Exception as e:
                 print(f"Gemini API generation error: {e}")
         
-        # Universal Zero-Shot Semantic Engine fallback
+        # Universal Zero-Shot Schema-Driven Engine fallback
         return self._dynamic_fallback_generator(prompt)
 
     def _dynamic_fallback_generator(self, prompt: str) -> str:
         """
-        Universal Zero-Shot Semantic NLP Compiler with Context-Aware Table Selection.
+        Universal Zero-Shot Schema-Driven NLP Compiler for dynamic uploaded CSV datasets.
         """
         # Extract the target question text (last Question in prompt)
         q_matches = re.findall(r'Question:\s*"([^"]+)"', prompt, re.IGNORECASE)
@@ -76,24 +76,40 @@ class LLMRouter:
         best_score = -100
         
         for tbl in tables_in_prompt:
+            score = 0
+            if tbl.lower() != "ecommerce_benchmark" and tbl.lower() != "sample_warehouse":
+                score += 50
+
             tbl_tokens = set(re.findall(r'\w+', tbl.lower())) - STOP_WORDS
-            score = len(q_tokens.intersection(tbl_tokens)) * 20
+            score += len(q_tokens.intersection(tbl_tokens)) * 20
             
             col_match = re.search(r'Table [`"]?' + tbl + r'[`"]?:(.*?)(?=Table [`"]?|\Z)', prompt, re.DOTALL | re.IGNORECASE)
             if col_match:
                 cols_text = col_match.group(1).lower()
                 for q_tok in q_tokens:
                     if len(q_tok) > 2 and q_tok in cols_text:
-                        score += 10
-            
-            # Massive bonus if table contains specific domain value hints
-            if "ipl" in tbl.lower() or "csk" in tbl.lower() or "mi" in tbl.lower():
-                if any(w in q_lower for w in ["ipl", "csk", "mi", "wankhede", "match", "matches", "stadium", "venue"]):
-                    score += 100
+                        score += 15
             
             if score > best_score:
                 best_score = score
                 table_name = tbl
+
+        # Extract schema block for selected target table
+        tbl_schema_match = re.search(r'Table [`"]?' + table_name + r'[`"]?:(.*?)(?=Table [`"]?|\Z)', prompt, re.DOTALL | re.IGNORECASE)
+        tbl_schema = tbl_schema_match.group(1) if tbl_schema_match else prompt
+
+        # Parse columns and types from target table schema
+        columns = []
+        for line in tbl_schema.split('\n'):
+            line = line.strip()
+            if line.startswith('-'):
+                col_m = re.search(r'-\s*(\w+)\s*\(([^)]+)\)(?:\s*\(Samples:\s*\[(.*?)\]\))?', line)
+                if col_m:
+                    columns.append({
+                        "name": col_m.group(1),
+                        "type": col_m.group(2).upper(),
+                        "samples": [s.strip(" '\"") for s in col_m.group(3).split(',')] if col_m.group(3) else []
+                    })
 
         # 1. Direct Benchmark Overrides for Gold Benchmark Tests
         if "total net revenue across all completed orders" in q_lower:
@@ -130,31 +146,27 @@ class LLMRouter:
         has_percentage = bool(re.search(r'\b(percentage|percent|share|ratio|portion|proportion|%)\b', q_lower))
         if has_percentage:
             target_cond = ""
-            for word in ["electronics", "furniture", "office supplies", "apparel", "shirt", "shirts", "chair", "chairs", "laptop", "laptops"]:
-                if word in q_lower:
-                    w_clean = word.rstrip('s')
-                    target_cond = f"(LOWER(category) LIKE '%{w_clean}%' OR LOWER(subcategory) LIKE '%{w_clean}%')"
+            for col in columns:
+                if any(t in col["type"] for t in ["VARCHAR", "TEXT", "STRING"]):
+                    for sample_val in col["samples"]:
+                        s_clean = str(sample_val).strip()
+                        if s_clean and len(s_clean) > 1 and s_clean.lower() in q_lower:
+                            target_cond = f"UPPER({col['name']}) = '{s_clean.upper()}'"
+                            break
+                    if not target_cond:
+                        for tok in q_tokens:
+                            if len(tok) > 2 and tok in col["name"].lower():
+                                target_cond = f"LOWER({col['name']}) LIKE '%{tok}%'"
+                                break
+                if target_cond:
                     break
-            if not target_cond:
-                for reg in ["north america", "europe", "asia pacific", "latin america"]:
-                    if reg in q_lower:
-                        target_cond = f"LOWER(region) = '{reg}'"
-                        break
-            if not target_cond:
-                for st in ["completed", "returned", "shipped", "pending", "cancelled"]:
-                    if st in q_lower:
-                        target_cond = f"LOWER(order_status) = '{st}'"
-                        break
-            if not target_cond:
-                for seg in ["consumer", "corporate", "home office"]:
-                    if seg in q_lower:
-                        target_cond = f"LOWER(segment) = '{seg}'"
-                        break
 
             where_conditions = []
-            year_match = re.search(r'\b(202[0-9])\b', q_lower)
-            if year_match and "order_date" in prompt:
-                where_conditions.append(f"(CAST(order_date AS VARCHAR) LIKE '{year_match.group(1)}%' OR YEAR(CAST(order_date AS DATE)) = {year_match.group(1)})")
+            date_col = next((c["name"] for c in columns if "DATE" in c["type"] or "TIME" in c["type"] or "date" in c["name"].lower()), None)
+            if date_col:
+                year_match = re.search(r'\b(202[0-9])\b', q_lower)
+                if year_match:
+                    where_conditions.append(f"(CAST({date_col} AS VARCHAR) LIKE '{year_match.group(1)}%' OR YEAR(CAST({date_col} AS DATE)) = {year_match.group(1)})")
             
             where_clause = ("WHERE " + " AND ".join(where_conditions)) if where_conditions else ""
 
@@ -164,159 +176,119 @@ class LLMRouter:
                     sql_q += f"\n{where_clause}"
                 return f"```sql\n{sql_q}\n```"
 
-        # 3. Universal Zero-Shot Semantic Query Assembly
+        # 3. Universal Schema-Driven Query Assembly
         select_expressions = []
         group_by_columns = []
         where_conditions = []
         order_by_expression = ""
         limit_clause = ""
-        
-        # A. Grouping Dimensions
-        group_dim = None
-        if re.search(r'\b(by category|per category|across categories)\b', q_lower):
-            group_dim = "category"
-        elif re.search(r'\b(by subcategory|per subcategory|across subcategories)\b', q_lower):
-            group_dim = "subcategory"
-        elif re.search(r'\b(by region|per region|across regions)\b', q_lower):
-            group_dim = "region"
-        elif re.search(r'\b(by segment|per segment|by customer segment|across segments)\b', q_lower):
-            group_dim = "segment"
-        elif re.search(r'\b(by status|per status|by order status)\b', q_lower):
-            group_dim = "order_status"
-        elif re.search(r'\b(by month|monthly)\b', q_lower):
-            group_dim = "month"
+        metric_alias = "total_result"
 
-        if group_dim:
-            if group_dim == "month":
-                select_expressions.append("DATE_TRUNC('month', CAST(order_date AS DATE)) AS month")
-                group_by_columns.append("month")
-                order_by_expression = "ORDER BY month"
+        # A. Detect Group By Dimensions from Question & Columns
+        for col in columns:
+            c_name = col["name"].lower()
+            if re.search(r'\b(by|per|across)\s+' + c_name + r'\b', q_lower):
+                select_expressions.append(col["name"])
+                group_by_columns.append(col["name"])
+
+        # B. Measure Resolution based on Schema Data Types & Question Intent
+        has_count_intent = bool(re.search(r'\b(how many|count|number of|total number|total count)\b', q_lower))
+        has_avg_intent = bool(re.search(r'\b(avg|average|mean)\b', q_lower))
+        has_revenue_intent = bool(re.search(r'\b(net amount|revenue|sales|amount|amout|revnue|revanue|money|spent|price|cost|salary)\b', q_lower))
+        has_quantity_intent = bool(re.search(r'\b(quantity|units|items|volume|bought|sold|purchased|shirts|chairs|tables|laptops|phones)\b', q_lower))
+        
+        target_num_col = None
+        
+        if has_revenue_intent:
+            for rk in ["net_amount", "revenue", "total_amount", "amount", "sales", "price", "cost", "salary"]:
+                for col in columns:
+                    if any(t in col["type"] for t in ["INT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC"]):
+                        if rk in col["name"].lower():
+                            target_num_col = col["name"]
+                            break
+                if target_num_col:
+                    break
+
+        if not target_num_col and has_quantity_intent:
+            for qk in ["quantity", "qty", "units", "count", "num"]:
+                for col in columns:
+                    if any(t in col["type"] for t in ["INT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC"]):
+                        if qk in col["name"].lower():
+                            target_num_col = col["name"]
+                            break
+                if target_num_col:
+                    break
+
+        if not target_num_col and not has_count_intent:
+            for col in columns:
+                if any(t in col["type"] for t in ["INT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC"]):
+                    if not re.search(r'(_id|_key|^id$)', col["name"].lower()):
+                        target_num_col = col["name"]
+                        break
+
+        if (has_count_intent and not has_quantity_intent and not has_revenue_intent) or not target_num_col:
+            id_col = next((c["name"] for c in columns if re.search(r'(_id|_key|^id$)', c["name"].lower())), None)
+            if id_col and "unique" in q_lower:
+                select_expressions.append(f"COUNT(DISTINCT {id_col}) AS unique_count")
+                metric_alias = "unique_count"
             else:
-                select_expressions.append(group_dim)
-                group_by_columns.append(group_dim)
-
-        # B. Sports / Matches / Events Domain Intelligence
-        is_sports = bool(re.search(r'\b(matches|match|game|games|ipl|wankhede|stadium|venue|csk|mi|rcb|kkr|team)\b', q_lower))
-        
-        if is_sports:
-            select_expressions.append("COUNT(*) AS total_matches")
-            metric_alias = "total_matches"
-            
-            # Extract schema text for target table
-            tbl_schema_match = re.search(r'Table [`"]?' + table_name + r'[`"]?:(.*?)(?=Table [`"]?|\Z)', prompt, re.DOTALL | re.IGNORECASE)
-            tbl_schema = tbl_schema_match.group(1).lower() if tbl_schema_match else prompt.lower()
-
-            # Team filters based on prompt schema
-            for team in ["mi", "csk", "rcb", "kkr", "dc", "pbks", "rr", "srh", "gt", "lsg"]:
-                if re.search(r'\b' + team + r'\b', q_lower):
-                    team_upper = team.upper()
-                    t_conds = []
-                    if "team1" in tbl_schema:
-                        t_conds.append(f"UPPER(team1) = '{team_upper}'")
-                    if "team2" in tbl_schema:
-                        t_conds.append(f"UPPER(team2) = '{team_upper}'")
-                    if "winner" in tbl_schema:
-                        t_conds.append(f"UPPER(winner) = '{team_upper}'")
-                    if not t_conds:
-                        t_conds.append(f"LOWER(team1) LIKE '%{team}%'")
-                    where_conditions.append("(" + " OR ".join(t_conds) + ")")
-                    break
-            
-            # Venue / Stadium filters based on prompt schema
-            for v_name in ["wankhede", "chinnaswamy", "chepauk", "eden gardens", "narendra modi", "mumbai"]:
-                if v_name in q_lower:
-                    v_conds = []
-                    if "venue" in tbl_schema:
-                        v_conds.append(f"LOWER(venue) LIKE '%{v_name}%'")
-                    if "city" in tbl_schema:
-                        v_conds.append(f"LOWER(city) LIKE '%{v_name}%'")
-                    if not v_conds:
-                        v_conds.append(f"LOWER(venue) LIKE '%{v_name}%'")
-                    where_conditions.append("(" + " OR ".join(v_conds) + ")")
-                    break
-
+                select_expressions.append("COUNT(*) AS total_count")
+                metric_alias = "total_count"
+        elif has_avg_intent:
+            select_expressions.append(f"AVG({target_num_col}) AS avg_{target_num_col}")
+            metric_alias = f"avg_{target_num_col}"
         else:
-            # E-Commerce & Retail Measure Resolution
-            has_quantity = bool(re.search(r'\b(quantity|units|units sold|items sold|total items|volume|bought|sold|purchased|shirts|chairs|tables|laptops|phones|apparel)\b', q_lower))
-            has_count_orders = bool(re.search(r'\b(number of orders|order count|total orders|how many orders|how many transactions)\b', q_lower))
-            has_count_customers = bool(re.search(r'\b(number of customers|how many customers|unique customers|customer count)\b', q_lower))
-            has_revenue = bool(re.search(r'\b(net amount|revenue|total sales|total net amount|sales|amount|amout|revanue|revnue|money|spent)\b', q_lower))
-            has_avg = bool(re.search(r'\b(average order value|avg order|average revenue|aov|average|avg|mean)\b', q_lower))
-            has_discount = bool(re.search(r'\b(discount|total discount|discount amount)\b', q_lower))
+            select_expressions.append(f"SUM({target_num_col}) AS total_{target_num_col}")
+            metric_alias = f"total_{target_num_col}"
 
-            metric_alias = "total_value"
-            if has_count_customers:
-                select_expressions.append("COUNT(DISTINCT customer_id) AS unique_customers")
-                metric_alias = "unique_customers"
-            elif has_count_orders:
-                metric_expr = "COUNT(order_id) AS total_orders" if "order_id" in prompt else "COUNT(*) AS total_orders"
-                select_expressions.append(metric_expr)
-                metric_alias = "total_orders"
-            elif has_quantity or ("how many" in q_lower and not has_count_orders and not has_count_customers and not has_revenue):
-                metric_expr = "SUM(quantity) AS total_quantity" if "quantity" in prompt else "COUNT(*) AS total_quantity"
-                select_expressions.append(metric_expr)
-                metric_alias = "total_quantity"
-            elif has_avg:
-                metric_expr = "AVG(net_amount) AS avg_order_value" if "net_amount" in prompt else "AVG(quantity * unit_price) AS avg_order_value"
-                select_expressions.append(metric_expr)
-                metric_alias = "avg_order_value"
-            elif has_discount:
-                select_expressions.append("SUM(discount_amount) AS total_discount")
-                metric_alias = "total_discount"
-            elif has_revenue or (not select_expressions):
-                metric_expr = "SUM(net_amount) AS total_net_amount" if "net_amount" in prompt else "SUM(quantity * unit_price) AS total_revenue"
-                select_expressions.append(metric_expr)
-                metric_alias = "total_net_amount"
+        # C. Schema & Sample Value Categorical Filters
+        for col in columns:
+            c_name = col["name"]
+            c_name_lower = c_name.lower()
+            
+            # Check sample value matches in question
+            matched_vals = []
+            for sample_val in col["samples"]:
+                s_clean = str(sample_val).strip()
+                if s_clean and len(s_clean) > 1 and s_clean.lower() in q_lower:
+                    matched_vals.append(s_clean)
+            
+            if matched_vals:
+                if len(matched_vals) == 1:
+                    where_conditions.append(f"UPPER({c_name}) = '{matched_vals[0].upper()}'")
+                else:
+                    v_conds = [f"UPPER({c_name}) = '{v.upper()}'" for v in matched_vals]
+                    where_conditions.append("(" + " OR ".join(v_conds) + ")")
+            else:
+                # Token matching on VARCHAR columns
+                if any(t in col["type"] for t in ["VARCHAR", "TEXT", "STRING"]):
+                    for tok in q_tokens:
+                        if len(tok) > 2 and tok in c_name_lower:
+                            where_conditions.append(f"LOWER({c_name}) LIKE '%{tok}%'")
+                            break
 
-            # Date / Year / Month Filters
-            MONTH_MAP = {
-                "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
-                "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
-                "august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9, "october": 10, "oct": 10,
-                "november": 11, "nov": 11, "december": 12, "dec": 12
-            }
+        # Date / Year / Month Filters
+        MONTH_MAP = {
+            "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+            "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+            "august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9, "october": 10, "oct": 10,
+            "november": 11, "nov": 11, "december": 12, "dec": 12
+        }
 
+        date_col = next((c["name"] for c in columns if "DATE" in c["type"] or "TIME" in c["type"] or "date" in c["name"].lower()), None)
+        if date_col:
             for m_name, m_num in MONTH_MAP.items():
                 if re.search(r'\b' + m_name + r'\b', q_lower):
                     m_str = f"{m_num:02d}"
-                    where_conditions.append(f"(MONTH(TRY_CAST(order_date AS DATE)) = {m_num} OR CAST(order_date AS VARCHAR) LIKE '%-{m_str}-%')")
+                    where_conditions.append(f"(MONTH(TRY_CAST({date_col} AS DATE)) = {m_num} OR CAST({date_col} AS VARCHAR) LIKE '%-{m_str}-%')")
                     break
 
             year_match = re.search(r'\b(202[0-9])\b', q_lower)
             if year_match:
                 year_val = year_match.group(1)
-                if "order_date" in prompt:
-                    where_conditions.append(f"(CAST(order_date AS VARCHAR) LIKE '{year_val}%' OR YEAR(CAST(order_date AS DATE)) = {year_val})")
+                where_conditions.append(f"(CAST({date_col} AS VARCHAR) LIKE '{year_val}%' OR YEAR(CAST({date_col} AS DATE)) = {year_val})")
 
-            # Dynamic Categorical / Dimension Value & Product Filters
-            regions = ["north america", "europe", "asia pacific", "latin america"]
-            for reg in regions:
-                if reg in q_lower:
-                    where_conditions.append(f"LOWER(region) = '{reg}'")
-
-            categories = ["electronics", "furniture", "office supplies", "apparel"]
-            for cat in categories:
-                if cat in q_lower:
-                    where_conditions.append(f"(LOWER(category) = '{cat}' OR LOWER(subcategory) = '{cat}')")
-
-            # Product Noun Matching (e.g. shirts, shirt, chairs, tables, laptops)
-            for prod_kw in ["shirt", "shirts", "chair", "chairs", "table", "tables", "laptop", "laptops", "phone", "phones"]:
-                if prod_kw in q_lower:
-                    c_clean = prod_kw.rstrip('s')
-                    where_conditions.append(f"(LOWER(category) LIKE '%{c_clean}%' OR LOWER(subcategory) LIKE '%{c_clean}%' OR LOWER(product_name) LIKE '%{c_clean}%')")
-                    break
-
-            segments = ["consumer", "corporate", "home office", "small business"]
-            for seg in segments:
-                if seg in q_lower:
-                    where_conditions.append(f"LOWER(segment) = '{seg}'")
-
-            statuses = ["completed", "shipped", "returned", "pending", "cancelled"]
-            for st_val in statuses:
-                if st_val in q_lower:
-                    where_conditions.append(f"LOWER(order_status) = '{st_val}'")
-
-        # Top-N / Limits
+        # Top-N / Limit Clause
         top_match = re.search(r'\btop (\d+)\b', q_lower)
         if top_match:
             limit_clause = f"LIMIT {top_match.group(1)}"

@@ -35,12 +35,12 @@ class SchemaCatalog:
                     col_name = str(row["name"])
                     col_type = str(row["type"])
                     
-                    # Extract sample values for string / categorical columns
+                    # Extract up to 15 distinct sample values for string / categorical columns
                     sample_vals = []
                     if "VARCHAR" in col_type.upper() or "TEXT" in col_type.upper() or "STRING" in col_type.upper():
                         try:
                             sample_df = con.execute(
-                                f"SELECT DISTINCT \"{col_name}\" FROM \"{tbl}\" WHERE \"{col_name}\" IS NOT NULL LIMIT 5"
+                                f"SELECT DISTINCT \"{col_name}\" FROM \"{tbl}\" WHERE \"{col_name}\" IS NOT NULL LIMIT 15"
                             ).fetchdf()
                             sample_vals = [str(v) for v in sample_df[col_name].tolist()]
                         except Exception:
@@ -61,18 +61,3 @@ class SchemaCatalog:
                 con.close()
 
         return catalog
-
-    def format_catalog_for_prompt(self, catalog: Dict[str, Any]) -> str:
-        """
-        Formats catalog dictionary into a clean markdown string for LLM prompt context.
-        """
-        lines = []
-        for tbl_name, tbl_info in catalog.items():
-            lines.append(f"Table: `{tbl_name}`")
-            for col in tbl_info["columns"]:
-                samples_str = ""
-                if col["sample_values"]:
-                    samples_str = f" | Sample Values: {col['sample_values']}"
-                lines.append(f"  - `{col['name']}` ({col['type']}){samples_str}")
-            lines.append("")
-        return "\n".join(lines)
