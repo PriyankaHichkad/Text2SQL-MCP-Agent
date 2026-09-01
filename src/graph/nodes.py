@@ -1,37 +1,57 @@
+import duckdb
 from src.graph.state import AgentState
+from src.graph.intent import classify_intent
 from src.knowledge.schema_linker import SchemaLinker
-from src.knowledge.semantic_layer import SemanticLayer
 from src.knowledge.exemplars import ExemplarRetriever
+from src.models.router import LLMRouter
 from src.execution.validator import SQLValidator
 from src.execution.sandbox import QuerySandbox
-from src.models.router import LLMRouter
-import duckdb
 
 class Text2SQLGraphNodes:
+    """
+    Graph Execution Nodes for LangGraph Text-to-SQL Workflow Pipeline.
+    """
     def __init__(self, db_path: str = "data/sample_warehouse.db", llm_router: LLMRouter = None):
         self.db_path = db_path
         self.linker = SchemaLinker()
-        self.semantic_layer = SemanticLayer()
         self.exemplar_retriever = ExemplarRetriever()
-        self.validator = SQLValidator(dialect="duckdb")
-        self.sandbox = QuerySandbox(db_path=db_path)
         self.llm = llm_router or LLMRouter()
+        self.validator = SQLValidator()
+        self.sandbox = QuerySandbox(db_path=db_path)
 
     def link_schema_node(self, state: AgentState) -> AgentState:
-        """Node 1: Link schema & inject semantic metrics"""
-        state.pruned_catalog, state.join_hints = self.linker.link_schema(state.question, state.catalog)
-        state.semantic_context = self.semantic_layer.get_semantic_context(state.question)
+        """Node 1: Value-Aware Schema & Semantic Context Linking"""
+        pruned_cat, join_hints = self.linker.link_schema(state.question, state.catalog)
+        state.pruned_catalog = pruned_cat
+        state.join_hints = join_hints
+        
+        semantic_ctx = self.linker.inject_semantic_context(state.question)
+        state.semantic_context = f"\n\nSemantic Rules:\n{semantic_ctx}" if semantic_ctx else ""
         return state
 
     def generate_sql_node(self, state: AgentState) -> AgentState:
-        """Node 2: Draft SQL query using LLM and dynamic few-shot exemplars"""
-        catalog_str = ""
-        for tbl_name, tbl_info in state.pruned_catalog.items():
+        """Node 2: Smart Intent-Based Dual Router: Zero-Shot Compiler vs LLM Engine"""
+        intent = classify_intent(state.question, state.pruned_catalog or state.catalog)
+
+        # Build prompt format for fallback generator or LLM
+        catalog_str = "Database Schema & Sample Values:\n"
+        for tbl_name, tbl_info in (state.pruned_catalog or state.catalog).items():
             catalog_str += f"Table `{tbl_name}`:\n"
             for col in tbl_info["columns"]:
-                samples = f" (Samples: {col['sample_values']})" if col["sample_values"] else ""
-                catalog_str += f"  - {col['name']} ({col['type']}){samples}\n"
+                c_name = col.get("name") or col.get("column_name", "column")
+                c_type = col.get("type") or col.get("data_type", "VARCHAR")
+                c_samples = col.get("samples") or col.get("sample_values", [])
+                samples_str = f" (Samples: {c_samples})" if c_samples else ""
+                catalog_str += f"  - {c_name} ({c_type}){samples_str}\n"
 
+        prompt_str = f"{catalog_str}\nQuestion: \"{state.question}\""
+
+        if intent == "SIMPLE_DETERMINISTIC":
+            state.generated_sql = self.llm._dynamic_fallback_generator(prompt_str)
+            state.used_engine = "Zero-Shot Deterministic Engine (Sub-Millisecond)"
+            return state
+
+        # Complex Analytical Intent -> LLM Engine
         join_hints_str = ""
         if state.join_hints:
             join_hints_str = "Candidate Join Relationships:\n" + "\n".join([f"- {h}" for h in state.join_hints]) + "\n\n"
@@ -54,79 +74,65 @@ Rules:
 4. ALWAYS use explicit JOIN conditions with ON clauses.
 """
         state.generated_sql = self.llm.generate(prompt)
-        state.used_engine = getattr(self.llm, "active_engine", "Gemini 2.5 Flash (LangChain)")
+        state.used_engine = getattr(self.llm, "active_engine", "Gemini 3.6 Flash (LangChain)")
         return state
 
     def validate_and_execute_node(self, state: AgentState, connection: duckdb.DuckDBPyConnection = None) -> AgentState:
         """Node 3: Validate AST and execute in read-only sandbox"""
-        is_valid, clean_sql, val_err = self.validator.validate(state.generated_sql)
-        state.is_valid = is_valid
+        success, df_res, clean_sql, exec_err = self.sandbox.execute_query(state.generated_sql, connection=connection)
+        state.is_valid = success or (exec_err == "")
         state.clean_sql = clean_sql
-        state.validation_error = val_err
-
-        if not is_valid:
-            state.execution_success = False
-            state.execution_error = val_err
-            return state
-
-        # Execute in sandbox
-        success, df_result, clean_sql_executed, exec_err = self.sandbox.execute_query(clean_sql, connection=connection)
         state.execution_success = success
-        state.result_df = df_result
-        state.clean_sql = clean_sql_executed
+        state.result_df = df_res
         state.execution_error = exec_err
-
         return state
 
     def self_correct_node(self, state: AgentState) -> AgentState:
-        """Node 4: Bounded self-correction loop when query fails"""
+        """Node 4: Execution-Guided AST Self-Correction Node"""
         state.retry_count += 1
         
-        err_msg = state.validation_error or state.execution_error
-        prompt = f"""Your previous SQL query failed to run. Please fix the error and rewrite a valid DuckDB SELECT query.
-
+        err_msg = state.validation_error if not state.is_valid else state.execution_error
+        
+        correction_prompt = f"""The SQL query you previously generated produced an error.
 Original Question: "{state.question}"
-Previous Generated Query:
+
+Failed SQL Query:
 {state.generated_sql}
 
-Error Message:
+Error Feedback:
 {err_msg}
 
-Return ONLY the repaired raw SQL query inside ```sql ... ``` code block.
+Please fix the error and return ONLY the corrected, valid DuckDB SQL query inside a ```sql ... ``` code block.
 """
-        state.generated_sql = self.llm.generate(prompt)
+        state.generated_sql = self.llm.generate(correction_prompt)
         return state
 
     def format_answer_node(self, state: AgentState) -> AgentState:
-        """Node 5: Synthesize final answer and tabular results"""
+        """Node 5: Natural Language Answer Formatting Node"""
         if not state.execution_success:
-            state.final_answer = f"⚠️ I am unable to answer this question with confidence. Error: {state.execution_error or state.validation_error}"
+            state.final_answer = f"⚠️ Query Execution Failure (Retries: {state.retry_count}):\n{state.execution_error}"
             state.confidence_score = 0.0
             return state
 
         df = state.result_df
         if df is None or df.empty:
-            state.final_answer = "The query executed successfully, but returned 0 matching records."
+            state.final_answer = "ℹ️ Query executed successfully, but returned 0 rows matching your criteria."
             state.confidence_score = 0.9
             return state
 
-        # Scalar single-value results (e.g. COUNT, SUM, AVG, PERCENTAGE)
-        if df.shape == (1, 1):
-            col_name = df.columns[0]
-            val = df.iloc[0, 0]
-            if "percentage" in col_name.lower() or "percent" in col_name.lower() or "ratio" in col_name.lower() or "share" in col_name.lower():
-                val_fmt = f"{val:.2f}%" if isinstance(val, (int, float)) else f"{val}%"
-            else:
-                val_fmt = f"{val:,.2f}".rstrip('0').rstrip('.') if isinstance(val, float) else (f"{val:,}" if isinstance(val, int) else str(val))
-            state.final_answer = f"The result for **{state.question}** is **{val_fmt}** (`{col_name}`)."
-            state.confidence_score = 1.0
-            return state
-
-        # Create quick natural language summary
         row_count = len(df)
-        cols_str = ", ".join(df.columns.tolist())
-        first_row_str = str(df.iloc[0].to_dict())
+        cols = list(df.columns)
+        
+        # Concise answer summary
+        if row_count == 1 and len(cols) == 1:
+            val = df.iloc[0, 0]
+            if isinstance(val, (int, float)):
+                formatted_val = f"{val:,.2f}" if isinstance(val, float) else f"{val:,}"
+            else:
+                formatted_val = str(val)
+            state.final_answer = f"**{cols[0]}**: `{formatted_val}`"
+        else:
+            state.final_answer = f"Returned **{row_count}** result rows across columns `{', '.join(cols)}`."
 
-        state.final_answer = f"Retrieved {row_count} rows. Key columns: `{cols_str}`. Top result: {first_row_str}."
-        state.confidence_score = 1.0
+        state.confidence_score = max(0.6, 1.0 - (state.retry_count * 0.15))
         return state

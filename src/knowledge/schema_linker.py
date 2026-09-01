@@ -102,3 +102,19 @@ class SchemaLinker:
                     if key.endswith("_id") or key.endswith("_key") or key == "id":
                         hints.append(f"JOIN Hint: `{t1}.{key} = {t2}.{key}`")
         return hints
+
+    def inject_semantic_context(self, question: str) -> str:
+        """
+        Injects semantic layer business rules and metric definitions relevant to the question.
+        """
+        q_lower = question.lower()
+        rules = []
+        if "revenue" in q_lower or "net amount" in q_lower or "sales" in q_lower:
+            rules.append("- Net Revenue calculation: SUM(net_amount)")
+        if "return" in q_lower or "returned" in q_lower:
+            rules.append("- Return status condition: order_status = 'returned'")
+        if "discount" in q_lower:
+            rules.append("- Discount calculation: SUM(discount_amount)")
+        if "percentage" in q_lower or "share" in q_lower or "%" in q_lower:
+            rules.append("- Percentage calculation: ROUND(100.0 * COUNT(CASE WHEN <condition> THEN 1 END) / COUNT(*), 2)")
+        return "\n".join(rules)
