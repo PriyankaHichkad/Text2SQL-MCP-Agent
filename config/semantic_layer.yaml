@@ -1,5 +1,5 @@
 # Business Semantic Layer Dictionary
-# Maps natural language business terminology to governance-approved SQL calculations
+# Governed mapping of natural language business concepts & SQL function patterns
 
 metrics:
   revenue:
@@ -26,6 +26,54 @@ metrics:
     description: "Distinct customers who completed an order"
     sql: "COUNT(DISTINCT customer_id)"
     alias: ["customer_count", "buyer_count"]
+
+  percentage_share:
+    description: "Percentage ratio calculation"
+    sql: "ROUND(100.0 * COUNT(CASE WHEN <condition> THEN 1 END) / COUNT(*), 2)"
+    alias: ["percent", "share", "ratio"]
+
+sql_function_patterns:
+  aggregates:
+    - SUM(col)
+    - COUNT(col)
+    - COUNT(DISTINCT col)
+    - AVG(col)
+    - MIN(col)
+    - MAX(col)
+
+  date_time:
+    - DATE_TRUNC('month', order_date)
+    - DATE_TRUNC('quarter', order_date)
+    - YEAR(order_date)
+    - MONTH(order_date)
+    - STRFTIME(order_date, '%Y-%m')
+    - DATEDIFF('day', start_date, end_date)
+
+  window_functions:
+    - ROW_NUMBER() OVER (PARTITION BY partition_col ORDER BY sort_col DESC)
+    - RANK() OVER (PARTITION BY partition_col ORDER BY metric_col DESC)
+    - DENSE_RANK() OVER (ORDER BY metric_col DESC)
+    - LAG(metric_col, 1) OVER (ORDER BY date_col)
+    - LEAD(metric_col, 1) OVER (ORDER BY date_col)
+    - SUM(metric_col) OVER (PARTITION BY partition_col ORDER BY date_col)
+
+  joins:
+    - INNER JOIN table2 ON table1.id = table2.id
+    - LEFT JOIN table2 ON table1.id = table2.id
+    - FULL OUTER JOIN table2 ON table1.id = table2.id
+
+  group_by_having:
+    - GROUP BY col1, col2 HAVING SUM(metric) > threshold
+    - GROUP BY col1 HAVING COUNT(id) >= min_count
+
+  subqueries_ctes:
+    - WITH cte_name AS (SELECT ... FROM ...) SELECT ... FROM cte_name
+    - WHERE col IN (SELECT col FROM ...)
+    - WHERE metric > (SELECT AVG(metric) FROM ...)
+
+  deduplication_limits:
+    - SELECT DISTINCT col1, col2
+    - ORDER BY metric DESC NULLS LAST LIMIT N OFFSET M
 
 time_macros:
   last_quarter: "order_date >= DATE_TRUNC('quarter', CURRENT_DATE - INTERVAL '3 months') AND order_date < DATE_TRUNC('quarter', CURRENT_DATE)"
