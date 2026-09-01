@@ -90,11 +90,11 @@ class LLMRouter:
         # 2. Check for Percentage / Ratio Intent
         has_percentage = bool(re.search(r'\b(percentage|percent|share|ratio|portion|proportion|%)\b', q_lower))
         if has_percentage:
-            # Find target value condition
             target_cond = ""
-            for cat in ["electronics", "furniture", "office supplies", "apparel"]:
+            for cat in ["electronics", "furniture", "office supplies", "apparel", "shirt", "shirts"]:
                 if cat in q_lower:
-                    target_cond = f"(LOWER(category) = '{cat}' OR LOWER(subcategory) = '{cat}')"
+                    c_clean = cat.rstrip('s')
+                    target_cond = f"(LOWER(category) LIKE '%{c_clean}%' OR LOWER(subcategory) LIKE '%{c_clean}%')"
                     break
             if not target_cond:
                 for reg in ["north america", "europe", "asia pacific", "latin america"]:
@@ -112,7 +112,6 @@ class LLMRouter:
                         target_cond = f"LOWER(segment) = '{seg}'"
                         break
 
-            # Date Filter if present
             where_conditions = []
             year_match = re.search(r'\b(202[0-9])\b', q_lower)
             if year_match and "order_date" in prompt:
@@ -158,14 +157,22 @@ class LLMRouter:
                 group_by_columns.append(group_dim)
 
         # B. Detect Measures / Aggregations
-        has_quantity = bool(re.search(r'\b(quantity|units|units sold|items sold|total items|volume)\b', q_lower))
-        has_count = bool(re.search(r'\b(number of|how many|count of|total count|order count|orders received|total orders|orders)\b', q_lower))
+        has_quantity = bool(re.search(r'\b(quantity|units|units sold|items sold|total items|volume|bought|sold|purchased|shirts|chairs|tables|laptops|phones)\b', q_lower))
+        has_count_orders = bool(re.search(r'\b(number of orders|order count|total orders|how many orders|how many transactions)\b', q_lower))
+        has_count_customers = bool(re.search(r'\b(number of customers|how many customers|unique customers|customer count)\b', q_lower))
         has_revenue = bool(re.search(r'\b(net amount|revenue|total sales|total net amount|sales|amount|money|spent)\b', q_lower))
         has_avg = bool(re.search(r'\b(average order value|avg order|average revenue|aov|average|avg|mean)\b', q_lower))
         has_discount = bool(re.search(r'\b(discount|total discount|discount amount)\b', q_lower))
 
         metric_alias = "total_value"
-        if has_quantity:
+        if has_count_customers:
+            select_expressions.append("COUNT(DISTINCT customer_id) AS unique_customers")
+            metric_alias = "unique_customers"
+        elif has_count_orders:
+            metric_expr = "COUNT(order_id) AS total_orders" if "order_id" in prompt else "COUNT(*) AS total_orders"
+            select_expressions.append(metric_expr)
+            metric_alias = "total_orders"
+        elif has_quantity or ("how many" in q_lower and not has_count_orders and not has_count_customers and not has_revenue):
             metric_expr = "SUM(quantity) AS total_quantity" if "quantity" in prompt else "COUNT(*) AS total_quantity"
             select_expressions.append(metric_expr)
             metric_alias = "total_quantity"
@@ -176,14 +183,6 @@ class LLMRouter:
         elif has_discount:
             select_expressions.append("SUM(discount_amount) AS total_discount")
             metric_alias = "total_discount"
-        elif has_count and not has_revenue:
-            if "customer" in q_lower:
-                select_expressions.append("COUNT(DISTINCT customer_id) AS unique_customers")
-                metric_alias = "unique_customers"
-            else:
-                metric_expr = "COUNT(order_id) AS total_orders" if "order_id" in prompt else "COUNT(*) AS total_orders"
-                select_expressions.append(metric_expr)
-                metric_alias = "total_orders"
         elif has_revenue or (not select_expressions):
             metric_expr = "SUM(net_amount) AS total_net_amount" if "net_amount" in prompt else "SUM(quantity * unit_price) AS total_revenue"
             select_expressions.append(metric_expr)
@@ -196,7 +195,7 @@ class LLMRouter:
             if "order_date" in prompt:
                 where_conditions.append(f"(CAST(order_date AS VARCHAR) LIKE '{year_val}%' OR YEAR(CAST(order_date AS DATE)) = {year_val})")
 
-        # D. Detect Categorical / Dimension Value Filters
+        # D. Detect Categorical / Dimension Value & Product Filters
         regions = ["north america", "europe", "asia pacific", "latin america"]
         for reg in regions:
             if reg in q_lower:
@@ -206,6 +205,13 @@ class LLMRouter:
         for cat in categories:
             if cat in q_lower:
                 where_conditions.append(f"(LOWER(category) = '{cat}' OR LOWER(subcategory) = '{cat}')")
+
+        # Dynamic Product Noun Matching (e.g. shirts, shirt, chairs, tables, laptops)
+        for prod_kw in ["shirt", "shirts", "chair", "chairs", "table", "tables", "laptop", "laptops", "phone", "phones"]:
+            if prod_kw in q_lower:
+                c_clean = prod_kw.rstrip('s')
+                where_conditions.append(f"(LOWER(category) LIKE '%{c_clean}%' OR LOWER(subcategory) LIKE '%{c_clean}%' OR LOWER(product_name) LIKE '%{c_clean}%')")
+                break
 
         segments = ["consumer", "corporate", "home office", "small business"]
         for seg in segments:
