@@ -93,8 +93,6 @@ class Text2SQLGraphNodes:
         return state
 
     def generate_sql_node(self, state: AgentState) -> AgentState:
-        intent = classify_intent(state.question, state.pruned_catalog or state.catalog)
-
         catalog_str = "Database Schema & Sample Values:\n"
         for tbl_name, tbl_info in (state.pruned_catalog or state.catalog).items():
             catalog_str += f"Table `{tbl_name}`:\n"
@@ -104,13 +102,6 @@ class Text2SQLGraphNodes:
                 c_samples = col.get("samples") or col.get("sample_values", [])
                 samples_str = f" (Samples: {c_samples})" if c_samples else ""
                 catalog_str += f"  - {c_name} ({c_type}){samples_str}\n"
-
-        prompt_str = f"{catalog_str}\nQuestion: \"{state.question}\""
-
-        if intent == "SIMPLE_DETERMINISTIC":
-            state.generated_sql = self.llm._dynamic_fallback_generator(prompt_str)
-            state.used_engine = "Zero-Shot Deterministic Engine (Sub-Millisecond)"
-            return state
 
         join_hints_str = ""
         if state.join_hints:
@@ -133,8 +124,19 @@ Rules:
 3. Do NOT include any DDL/DML statements (NO DROP, DELETE, UPDATE, INSERT, ALTER).
 4. ALWAYS use explicit JOIN conditions with ON clauses.
 """
-        state.generated_sql = self.llm.generate(prompt)
-        state.used_engine = getattr(self.llm, "active_engine", "Gemini 3.6 Flash (LangChain)")
+        # If an LLM model is available, use LLM for smart SQL generation
+        if getattr(self.llm, "llm", None) is not None:
+            try:
+                state.generated_sql = self.llm.generate(prompt)
+                state.used_engine = getattr(self.llm, "active_engine", "LLM Engine")
+                return state
+            except Exception as e:
+                print(f"Notice LLM generation fallback: {e}")
+
+        # Fallback to zero-shot deterministic engine only if LLM is unavailable or fails
+        prompt_str = f"{catalog_str}\nQuestion: \"{state.question}\""
+        state.generated_sql = self.llm._dynamic_fallback_generator(prompt_str)
+        state.used_engine = "Zero-Shot Schema Compiler (Fallback)"
         return state
 
     def validate_and_execute_node(self, state: AgentState, connection: duckdb.DuckDBPyConnection = None) -> AgentState:

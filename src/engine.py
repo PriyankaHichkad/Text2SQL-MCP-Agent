@@ -227,13 +227,13 @@ class LLMRouter:
                 class CustomHFClient:
                     def __init__(self, repo_id, token):
                         self.client = InferenceClient(model=repo_id, token=token)
-                    def invoke(self, prompt_text: str) -> str:
-                        res = self.client.text_generation(prompt_text, max_new_tokens=512, temperature=0.01)
-                        return str(res)
+                    def generate(self, prompt_text: str) -> str:
+                        return self.client.text_generation(prompt_text, max_new_tokens=512, temperature=0.01)
+                    def invoke(self, prompt_dict: dict) -> str:
+                        p_text = prompt_dict.get("prompt_text", str(prompt_dict))
+                        return self.generate(p_text)
 
                 self.llm = CustomHFClient(self.hf_repo, self.hf_token)
-                # Test connection
-                _ = self.llm.client.get_model_status()
                 self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
                 print(f"✅ Initialized Hugging Face Fine-Tuned Engine: {self.hf_repo}")
                 return
@@ -258,6 +258,9 @@ class LLMRouter:
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
         if self.llm:
             try:
+                if hasattr(self.llm, "generate") and not isinstance(self.llm, ChatGoogleGenerativeAI):
+                    res = self.llm.generate(prompt)
+                    return str(res).strip()
                 chain = PromptTemplate.from_template("{prompt_text}") | self.llm | StrOutputParser()
                 return chain.invoke({"prompt_text": prompt}).strip()
             except Exception as e:
@@ -468,7 +471,7 @@ class LLMRouter:
             else:
                 if any(t in col["type"] for t in ["VARCHAR", "TEXT", "STRING"]):
                     for tok in q_tokens:
-                        if len(tok) > 2 and tok in c_name_lower:
+                        if len(tok) > 2 and tok not in {"order", "amount", "total", "sum", "avg", "highest", "lowest", "net", "value", "count", "number"} and tok in c_name_lower:
                             where_conditions.append(f"LOWER({c_name}) LIKE '%{tok}%'")
                             break
 
