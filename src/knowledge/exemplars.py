@@ -89,6 +89,64 @@ DEFAULT_EXEMPLARS = [
     {
         "question": "List unique product categories and subcategories",
         "sql": "SELECT DISTINCT category, subcategory FROM ecommerce_benchmark ORDER BY category, subcategory;"
+    },
+
+    # 9. Enterprise Tier-1 Exemplars (Google, Microsoft, Amazon, Meta)
+    {
+        "question": "Find duplicate records across columns in a table",
+        "sql": "SELECT column1, column2, COUNT(*) AS dup_count FROM your_table GROUP BY column1, column2 HAVING COUNT(*) > 1;"
+    },
+    {
+        "question": "Retrieve the second highest salary or value from a table",
+        "sql": "SELECT MAX(salary) AS SecondHighestSalary FROM Employee WHERE salary < (SELECT MAX(salary) FROM Employee);"
+    },
+    {
+        "question": "Find employees without a department using a Left Join",
+        "sql": "SELECT e.* FROM Employee e LEFT JOIN Department d ON e.department_id = d.department_id WHERE d.department_id IS NULL;"
+    },
+    {
+        "question": "Identify customers with revenue below the 10th percentile (Google)",
+        "sql": "WITH customer_rev AS (SELECT customer_id, SUM(total_amount) AS total_revenue FROM Orders GROUP BY customer_id) SELECT customer_id, total_revenue FROM customer_rev WHERE total_revenue < (SELECT QUANTILE_CONT(total_revenue, 0.1) FROM customer_rev);"
+    },
+    {
+        "question": "Retrieve the longest gap in days between orders for each customer",
+        "sql": "WITH order_lags AS (SELECT customer_id, order_date, LAG(order_date) OVER (PARTITION BY customer_id ORDER BY order_date) AS prev_order_date FROM Orders) SELECT customer_id, MAX(DATEDIFF('day', prev_order_date, order_date)) AS max_gap_days FROM order_lags WHERE prev_order_date IS NOT NULL GROUP BY customer_id;"
+    },
+    {
+        "question": "Detect customers whose purchase amount is in the top 10th decile or 90th percentile",
+        "sql": "WITH decile_orders AS (SELECT customer_id, order_id, total_amount, NTILE(10) OVER (PARTITION BY customer_id ORDER BY total_amount) AS decile FROM Orders) SELECT customer_id, order_id, total_amount FROM decile_orders WHERE decile = 10;"
+    },
+    {
+        "question": "Calculate year-over-year (YoY) revenue growth (Microsoft)",
+        "sql": "WITH yearly_rev AS (SELECT YEAR(CAST(order_date AS DATE)) AS year, SUM(total_amount) AS revenue FROM Orders GROUP BY year) SELECT year, revenue, revenue - LAG(revenue, 1) OVER (ORDER BY year) AS yoy_growth FROM yearly_rev ORDER BY year;"
+    },
+    {
+        "question": "Show last purchase for each customer along with order amount",
+        "sql": "WITH ranked_orders AS (SELECT customer_id, order_id, total_amount, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date DESC) AS rn FROM Orders) SELECT customer_id, order_id, total_amount FROM ranked_orders WHERE rn = 1;"
+    },
+    {
+        "question": "Find products that contribute to 80% of revenue according to Pareto Principle",
+        "sql": "WITH sales_cte AS (SELECT product_id, SUM(quantity * price) AS revenue FROM Sales GROUP BY product_id), total_rev AS (SELECT SUM(revenue) AS grand_total FROM sales_cte), running_sales AS (SELECT s.product_id, s.revenue, SUM(s.revenue) OVER (ORDER BY s.revenue DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total, t.grand_total FROM sales_cte s CROSS JOIN total_rev t) SELECT product_id, revenue, running_total FROM running_sales WHERE running_total <= grand_total * 0.8 ORDER BY revenue DESC;"
+    },
+    {
+        "question": "Retrieve the maximum salary difference within each department",
+        "sql": "SELECT department_id, MAX(salary) - MIN(salary) AS salary_diff FROM Employee GROUP BY department_id;"
+    },
+    {
+        "question": "Calculate revenue generated from new customers first-time orders (Microsoft)",
+        "sql": "WITH first_orders AS (SELECT customer_id, MIN(order_date) AS first_order_date FROM Orders GROUP BY customer_id) SELECT SUM(o.total_amount) AS new_customer_revenue FROM Orders o INNER JOIN first_orders f ON o.customer_id = f.customer_id AND o.order_date = f.first_order_date;"
+    },
+    {
+        "question": "Identify top-performing departments by average salary",
+        "sql": "SELECT department_id, AVG(salary) AS avg_salary FROM Employee GROUP BY department_id ORDER BY avg_salary DESC;"
+    },
+    {
+        "question": "Find churned customers with no orders in the last 6 months",
+        "sql": "SELECT customer_id FROM Orders GROUP BY customer_id HAVING MAX(CAST(order_date AS DATE)) < CURRENT_DATE - INTERVAL '6 months';"
+    },
+    {
+        "question": "Rank employees by salary within each department",
+        "sql": "SELECT employee_id, department_id, salary, RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS salary_rk FROM Employee;"
     }
 ]
 
@@ -96,7 +154,7 @@ class ExemplarRetriever:
     """
     Dynamic Few-Shot Exemplar Retriever based on HKUST NL2SQL Handbook & Spider 2.0 research.
     Retrieves the top N worked question-to-SQL exemplars matching the input question's intent.
-    Covers Aggregations, Dates, Window Functions, Joins, Group By/Having, CTEs, Ratios, and Limits.
+    Covers Aggregations, Dates, Window Functions, Joins, Group By/Having, CTEs, Ratios, NTILE, YoY, Pareto, and Limits.
     """
     def __init__(self, exemplars: List[Dict[str, str]] = None):
         self.exemplars = exemplars or DEFAULT_EXEMPLARS
