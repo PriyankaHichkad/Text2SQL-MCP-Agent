@@ -46,3 +46,10 @@ def test_edge_case_discount_north_america(db_conn):
     res = wf.run("total discount amount given in North America", connection=db_conn)
     assert res.execution_success
     assert "SUM(discount_amount)" in res.clean_sql
+
+def test_edge_case_october_revenue(db_conn):
+    wf = Text2SQLWorkflow()
+    res = wf.run("total amout of revenue in october", connection=db_conn)
+    assert res.execution_success
+    assert "SUM(net_amount)" in res.clean_sql or "total_net_amount" in res.clean_sql
+    assert "10" in res.clean_sql or "october" in res.clean_sql.lower()

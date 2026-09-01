@@ -23,12 +23,10 @@ class LLMRouter:
                 os.environ["GOOGLE_API_KEY"] = self.api_key
                 genai.configure(api_key=self.api_key)
                 
-                # Auto-discover working model version
                 candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]
                 for m in candidate_models:
                     try:
                         m_obj = genai.GenerativeModel(m)
-                        # Quick ping check
                         res = m_obj.generate_content("SELECT 1")
                         if res and hasattr(res, 'text'):
                             self.gemini_model = m_obj
@@ -176,7 +174,7 @@ class LLMRouter:
         has_quantity = bool(re.search(r'\b(quantity|units|units sold|items sold|total items|volume|bought|sold|purchased|shirts|chairs|tables|laptops|phones|apparel)\b', q_lower))
         has_count_orders = bool(re.search(r'\b(number of orders|order count|total orders|how many orders|how many transactions)\b', q_lower))
         has_count_customers = bool(re.search(r'\b(number of customers|how many customers|unique customers|customer count)\b', q_lower))
-        has_revenue = bool(re.search(r'\b(net amount|revenue|total sales|total net amount|sales|amount|money|spent)\b', q_lower))
+        has_revenue = bool(re.search(r'\b(net amount|revenue|total sales|total net amount|sales|amount|amout|revanue|revnue|money|spent)\b', q_lower))
         has_avg = bool(re.search(r'\b(average order value|avg order|average revenue|aov|average|avg|mean)\b', q_lower))
         has_discount = bool(re.search(r'\b(discount|total discount|discount amount)\b', q_lower))
 
@@ -204,7 +202,28 @@ class LLMRouter:
             select_expressions.append(metric_expr)
             metric_alias = "total_net_amount"
 
-        # C. Date / Year Filters
+        # C. Date / Year / Month Filters
+        MONTH_MAP = {
+            "january": 1, "jan": 1,
+            "february": 2, "feb": 2,
+            "march": 3, "mar": 3,
+            "april": 4, "apr": 4,
+            "may": 5,
+            "june": 6, "jun": 6,
+            "july": 7, "jul": 7,
+            "august": 8, "aug": 8,
+            "september": 9, "sep": 9, "sept": 9,
+            "october": 10, "oct": 10,
+            "november": 11, "nov": 11,
+            "december": 12, "dec": 12
+        }
+
+        for m_name, m_num in MONTH_MAP.items():
+            if re.search(r'\b' + m_name + r'\b', q_lower):
+                m_str = f"{m_num:02d}"
+                where_conditions.append(f"(MONTH(TRY_CAST(order_date AS DATE)) = {m_num} OR CAST(order_date AS VARCHAR) LIKE '%-{m_str}-%')")
+                break
+
         year_match = re.search(r'\b(202[0-9])\b', q_lower)
         if year_match:
             year_val = year_match.group(1)
