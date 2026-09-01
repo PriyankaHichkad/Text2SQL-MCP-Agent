@@ -476,16 +476,29 @@ class LLMRouter:
 
         date_col = next((c["name"] for c in columns if "DATE" in c["type"] or "TIME" in c["type"] or "date" in c["name"].lower()), None)
         if date_col:
-            for m_name, m_num in MONTH_MAP.items():
-                if re.search(r'\b' + m_name + r'\b', q_lower):
-                    m_str = f"{m_num:02d}"
-                    where_conditions.append(f"(MONTH(TRY_CAST({date_col} AS DATE)) = {m_num} OR CAST({date_col} AS VARCHAR) LIKE '%-{m_str}-%')")
-                    break
-
-            year_match = re.search(r'\b(202[0-9])\b', q_lower)
-            if year_match:
-                year_val = year_match.group(1)
-                where_conditions.append(f"(CAST({date_col} AS VARCHAR) LIKE '{year_val}%' OR YEAR(CAST({date_col} AS DATE)) = {year_val})")
+            date_conditions = []
+            # Extract month + year pairs e.g. "july 2014", "september 2015"
+            phrase_matches = re.findall(r'\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b(?:\s+(\d{4}))?', q_lower)
+            
+            if phrase_matches:
+                for m_name, yr_str in phrase_matches:
+                    m_num = MONTH_MAP.get(m_name)
+                    if m_num:
+                        cond = f"(MONTH(TRY_CAST({date_col} AS DATE)) = {m_num})"
+                        if yr_str:
+                            cond = f"({cond} AND YEAR(TRY_CAST({date_col} AS DATE)) = {yr_str})"
+                        date_conditions.append(cond)
+            
+            if date_conditions:
+                if len(date_conditions) == 1:
+                    where_conditions.append(date_conditions[0])
+                else:
+                    where_conditions.append("(" + " OR ".join(date_conditions) + ")")
+            else:
+                year_matches = re.findall(r'\b(20[0-9]{2})\b', q_lower)
+                if year_matches:
+                    y_conds = [f"YEAR(TRY_CAST({date_col} AS DATE)) = {y}" for y in year_matches]
+                    where_conditions.append("(" + " OR ".join(y_conds) + ")")
 
         top_match = re.search(r'\btop (\d+)\b', q_lower)
         if top_match:
