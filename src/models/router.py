@@ -1,7 +1,11 @@
 import os
 import re
+from dotenv import load_dotenv
 import google.generativeai as genai
 from typing import Optional, List, Dict, Any
+
+# Load environment variables from .env file automatically
+load_dotenv()
 
 class LLMRouter:
     """
