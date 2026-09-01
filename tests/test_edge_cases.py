@@ -53,3 +53,12 @@ def test_edge_case_october_revenue(db_conn):
     assert res.execution_success
     assert "SUM(net_amount)" in res.clean_sql or "total_net_amount" in res.clean_sql
     assert "10" in res.clean_sql or "october" in res.clean_sql.lower()
+
+def test_edge_case_ipl_custom_dataset(db_conn):
+    db_conn.execute("CREATE TABLE CSKvMI_IPL2024 (match_id INT, team1 VARCHAR, team2 VARCHAR, venue VARCHAR, winner VARCHAR)")
+    db_conn.execute("INSERT INTO CSKvMI_IPL2024 VALUES (1, 'MI', 'CSK', 'Wankhede', 'MI'), (2, 'CSK', 'MI', 'Chepauk', 'CSK')")
+    wf = Text2SQLWorkflow()
+    res = wf.run("how many MI matches were held in Wankhede", connection=db_conn)
+    assert res.execution_success
+    assert "CSKvMI_IPL2024" in res.clean_sql
+    assert "ecommerce_benchmark" not in res.clean_sql

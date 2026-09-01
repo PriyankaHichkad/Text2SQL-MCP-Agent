@@ -5,37 +5,55 @@ import re
 class SchemaLinker:
     """
     Hybrid Schema Linker that prunes full database schema down to relevant tables/columns,
-    infers candidate foreign key join conditions, and performs value-aware categorical matching.
+    infers candidate foreign key join conditions, performs value-aware categorical matching,
+    and orders tables by semantic relevance score.
     """
     def __init__(self):
         pass
 
     def link_schema(self, question: str, catalog: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
         """
-        Retrieves relevant tables from catalog, matches literal categorical values, and infers join candidates.
+        Retrieves relevant tables from catalog, matches literal categorical values, orders tables by relevance score,
+        and infers join candidates.
         Returns: (pruned_catalog: Dict, join_hints: List[str])
         """
         value_hints, value_matched_tables = self.find_value_matches(question, catalog)
+        q_tokens = set(re.findall(r'\w+', question.lower()))
+
+        # Score each table based on name, column names, and sample values
+        table_scores = {}
+        for tbl_name, tbl_info in catalog.items():
+            score = 0
+            tbl_tokens = set(re.findall(r'\w+', tbl_name.lower()))
+            score += len(q_tokens.intersection(tbl_tokens)) * 5
+
+            for col in tbl_info.get("columns", []):
+                col_tokens = set(re.findall(r'\w+', col["name"].lower()))
+                score += len(q_tokens.intersection(col_tokens)) * 2
+                
+                for val in col.get("sample_values", []):
+                    val_str = str(val).lower().strip()
+                    if val_str and val_str in question.lower():
+                        score += 10
+
+            if tbl_name in value_matched_tables:
+                score += 15
+
+            table_scores[tbl_name] = score
+
+        # Sort tables by score descending
+        sorted_tables = sorted(catalog.keys(), key=lambda t: table_scores[t], reverse=True)
 
         if len(catalog) <= 3:
-            pruned_catalog = catalog
+            pruned_catalog = {t: catalog[t] for t in sorted_tables}
         else:
-            table_names = list(catalog.keys())
-            corpus = []
-            for tbl, info in catalog.items():
-                col_str = " ".join([c["name"] for c in info["columns"]])
-                corpus.append(f"{tbl} {col_str}".lower().split())
-
-            tokenized_query = re.findall(r'\w+', question.lower())
-            bm25 = BM25Okapi(corpus)
-            scores = bm25.get_scores(tokenized_query)
-
-            top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:3]
-            pruned_catalog = {table_names[i]: catalog[table_names[i]] for i in top_indices}
+            # Select top 3 tables
+            top_tables = sorted_tables[:3]
+            pruned_catalog = {t: catalog[t] for t in top_tables}
 
             # Always preserve tables matched via literal categorical values
             for v_tbl in value_matched_tables:
-                if v_tbl in catalog:
+                if v_tbl in catalog and v_tbl not in pruned_catalog:
                     pruned_catalog[v_tbl] = catalog[v_tbl]
 
         join_hints = self.infer_join_hints(pruned_catalog) + value_hints
@@ -54,27 +72,26 @@ class SchemaLinker:
             for col in tbl_info.get("columns", []):
                 for val in col.get("sample_values", []):
                     val_str = str(val).strip()
-                    if val_str and len(val_str) > 2 and val_str.lower() in q_lower:
+                    if val_str and len(val_str) > 1 and val_str.lower() in q_lower:
                         hints.append(f"Value Match: '{val_str}' belongs to `{tbl_name}.{col['name']}`")
                         matched_tables.append(tbl_name)
 
-        return list(set(hints)), list(set(matched_tables))
+        return hints, matched_tables
 
     def infer_join_hints(self, catalog: Dict[str, Any]) -> List[str]:
         """
-        Scans tables for matching column names or ID patterns (e.g. customer_id across tables).
+        Detects primary/foreign key join relationships across tables in catalog.
         """
         hints = []
-        table_cols = {}
-        for tbl_name, tbl_info in catalog.items():
-            table_cols[tbl_name] = [c["name"] for c in tbl_info["columns"]]
-
-        tables = list(table_cols.keys())
+        tables = list(catalog.keys())
         for i in range(len(tables)):
             for j in range(i + 1, len(tables)):
                 t1, t2 = tables[i], tables[j]
-                common_cols = set(table_cols[t1]).intersection(set(table_cols[t2]))
-                for col in common_cols:
-                    if col.endswith("_id") or col.endswith("_key") or col == "id":
-                        hints.append(f"`{t1}.{col}` <-> `{t2}.{col}`")
+                cols1 = {c["name"].lower() for c in catalog[t1]["columns"]}
+                cols2 = {c["name"].lower() for c in catalog[t2]["columns"]}
+
+                shared_keys = cols1.intersection(cols2)
+                for key in shared_keys:
+                    if key.endswith("_id") or key.endswith("_key") or key == "id":
+                        hints.append(f"JOIN Hint: `{t1}.{key} = {t2}.{key}`")
         return hints
