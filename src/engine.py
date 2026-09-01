@@ -207,14 +207,35 @@ class ExemplarRetriever:
 
 class LLMRouter:
     """
-    LangChain LCEL Provider Router & Universal Zero-Shot Fallback Compiler.
+    LangChain LCEL Provider Router (Hugging Face / Gemini / Universal Zero-Shot Fallback Compiler).
     """
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-3.6-flash"):
+    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
+        self.hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
+        self.hf_repo = os.getenv("HF_MODEL_REPO", "Priyanka221105/text2sql-model")
+        
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self.model_name = model_name
+        self.model_name = model_name or os.getenv("GEMINI_MODEL_NAME", "gemini-3.6-flash")
+        
         self.llm = None
         self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
 
+        # Priority 1: Hugging Face Fine-Tuned Model Endpoint
+        if self.hf_token and self.hf_repo:
+            try:
+                from langchain_community.llms import HuggingFaceEndpoint
+                self.llm = HuggingFaceEndpoint(
+                    repo_id=self.hf_repo,
+                    huggingfacehub_api_token=self.hf_token,
+                    temperature=0.01,
+                    max_new_tokens=512
+                )
+                self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
+                print(f"✅ Initialized Hugging Face Fine-Tuned Engine: {self.hf_repo}")
+                return
+            except Exception as e:
+                print(f"Notice initializing Hugging Face model: {e}")
+
+        # Priority 2: Gemini API / Tuned Gemini Model
         if self.api_key:
             os.environ["GOOGLE_API_KEY"] = self.api_key
             os.environ["GEMINI_API_KEY"] = self.api_key
@@ -227,7 +248,7 @@ class LLMRouter:
                 )
                 self.active_engine = f"{self.model_name} (LangChain)"
             except Exception as e:
-                print(f"Notice initializing model: {e}")
+                print(f"Notice initializing Gemini model: {e}")
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
         if self.llm:
