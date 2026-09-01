@@ -5,7 +5,7 @@ import pandas as pd
 @dataclass
 class AgentState:
     """
-    LangGraph Agent State definition tracking Text-to-SQL context, queries, and execution feedback.
+    LangGraph Agent State definition tracking Text-to-SQL context, queries, engine, and execution feedback.
     """
     question: str
     catalog: Dict[str, Any] = field(default_factory=dict)
@@ -27,3 +27,4 @@ class AgentState:
     
     final_answer: str = ""
     confidence_score: float = 1.0
+    used_engine: str = "Gemini 2.5 Flash (LangChain)"

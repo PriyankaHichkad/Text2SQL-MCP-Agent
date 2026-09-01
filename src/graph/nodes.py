@@ -54,6 +54,7 @@ Rules:
 4. ALWAYS use explicit JOIN conditions with ON clauses.
 """
         state.generated_sql = self.llm.generate(prompt)
+        state.used_engine = getattr(self.llm, "active_engine", "Gemini 2.5 Flash (LangChain)")
         return state
 
     def validate_and_execute_node(self, state: AgentState, connection: duckdb.DuckDBPyConnection = None) -> AgentState:

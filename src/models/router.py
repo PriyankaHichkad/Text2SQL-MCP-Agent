@@ -21,6 +21,7 @@ class LLMRouter:
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.model_name = model_name
         self.llm = None
+        self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
 
         if self.api_key:
             try:
@@ -30,6 +31,7 @@ class LLMRouter:
                     google_api_key=self.api_key,
                     temperature=0.0
                 )
+                self.active_engine = f"Gemini 2.5 Flash (LangChain)"
             except Exception as e:
                 print(f"Notice: LLM initialized with schema fallback ({e})")
 
@@ -41,16 +43,19 @@ class LLMRouter:
             try:
                 chain = PromptTemplate.from_template("{prompt_text}") | self.llm | StrOutputParser()
                 response = chain.invoke({"prompt_text": prompt})
+                self.active_engine = f"Gemini 2.5 Flash (LangChain)"
                 return response.strip()
             except Exception as e:
                 print(f"LLM execution warning: {e}")
 
+        self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
         return self._dynamic_fallback_generator(prompt)
 
     def _dynamic_fallback_generator(self, prompt: str) -> str:
         """
         Universal Zero-Shot Schema-Driven NLP Compiler for dynamic uploaded CSV datasets.
         """
+        self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
         q_matches = re.findall(r'Question:\s*"([^"]+)"', prompt, re.IGNORECASE)
         q_text = q_matches[-1] if q_matches else prompt
         q_lower = q_text.lower().strip()

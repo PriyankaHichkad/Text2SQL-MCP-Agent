@@ -16,6 +16,10 @@ import plotly.express as px
 import re
 import sqlglot
 
+# Check Streamlit Cloud Secrets for GEMINI_API_KEY
+if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+
 from src.graph.workflow import Text2SQLWorkflow
 from src.knowledge.catalog import SchemaCatalog
 
@@ -118,7 +122,7 @@ if question:
     raw_sql = state.clean_sql or state.generated_sql
     formatted_sql = format_pretty_sql(raw_sql)
     st.code(formatted_sql, language="sql")
-    st.caption(f"Confidence Score: `{state.confidence_score}` | Retries: `{state.retry_count}`")
+    st.caption(f"Engine: `{state.used_engine}` | Confidence Score: `{state.confidence_score}` | Retries: `{state.retry_count}`")
 
     st.markdown("---")
 
