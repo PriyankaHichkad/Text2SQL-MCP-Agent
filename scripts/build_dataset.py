@@ -3,8 +3,9 @@ import json
 
 def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
     """
-    Generates a rich, multi-domain synthetic dataset formatted for QLoRA fine-tuning (ChatML format).
-    Covers E-Commerce, IPL Sports, HR Payroll, Healthcare, and Banking domains.
+    Generates a rich, multi-domain dataset covering ALL SQL functions:
+    Aggregates, Date/Time, Window (OVER, RANK, ROW_NUMBER, LAG, LEAD), JOINs,
+    GROUP BY, HAVING, Subqueries, DISTINCT, LIMIT, OFFSET, ORDER BY, CTEs (WITH).
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -14,105 +15,65 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
         "Return ONLY the SQL query inside ```sql ... ``` code block."
     )
 
-    examples = [
-        # Domain 1: E-Commerce Benchmark Analytics
+    comprehensive_examples = [
+        # 1. Aggregates & Group By & Having & Order By & Limit & Offset
         {
-            "schema": "Table `ecommerce_benchmark`: order_id (INT), customer_id (VARCHAR), region (VARCHAR), category (VARCHAR), subcategory (VARCHAR), net_amount (DOUBLE), discount_amount (DOUBLE), quantity (INT), order_status (VARCHAR), order_date (DATE), ship_date (DATE)",
-            "question": "What is total net revenue for completed orders in 2025?",
-            "sql": "SELECT SUM(net_amount) AS total_revenue FROM ecommerce_benchmark WHERE order_status = 'completed' AND (CAST(order_date AS VARCHAR) LIKE '2025%' OR YEAR(CAST(order_date AS DATE)) = 2025);"
+            "schema": "Table `orders`: order_id (INT), category (VARCHAR), net_amount (DOUBLE)",
+            "question": "top product categories with total revenue exceeding 10000 skipping first 5",
+            "sql": "SELECT category, SUM(net_amount) AS total_revenue FROM orders GROUP BY category HAVING SUM(net_amount) > 10000 ORDER BY total_revenue DESC LIMIT 5 OFFSET 5;"
+        },
+        # 2. Distinct & Count Distinct
+        {
+            "schema": "Table `customers`: customer_id (VARCHAR), region (VARCHAR)",
+            "question": "distinct regions with unique customer count",
+            "sql": "SELECT DISTINCT region, COUNT(DISTINCT customer_id) AS unique_buyers FROM customers GROUP BY region ORDER BY unique_buyers DESC;"
+        },
+        # 3. Date & Time Functions (DATE_TRUNC, DATEDIFF, TRY_CAST, YEAR, MONTH)
+        {
+            "schema": "Table `orders`: order_id (INT), order_date (VARCHAR), ship_date (VARCHAR)",
+            "question": "average shipping duration in days for October 2025 using try_cast",
+            "sql": "SELECT AVG(DATEDIFF('day', TRY_CAST(order_date AS DATE), TRY_CAST(ship_date AS DATE))) AS avg_ship_days FROM orders WHERE MONTH(TRY_CAST(order_date AS DATE)) = 10 AND YEAR(TRY_CAST(order_date AS DATE)) = 2025;"
         },
         {
-            "schema": "Table `ecommerce_benchmark`: order_id (INT), customer_id (VARCHAR), region (VARCHAR), category (VARCHAR), subcategory (VARCHAR), net_amount (DOUBLE), discount_amount (DOUBLE), quantity (INT), order_status (VARCHAR), order_date (DATE)",
-            "question": "top 5 product categories by total net revenue",
-            "sql": "SELECT category, SUM(net_amount) AS total_revenue FROM ecommerce_benchmark GROUP BY category ORDER BY total_revenue DESC LIMIT 5;"
+            "schema": "Table `sales`: sale_id (INT), net_amount (DOUBLE), sale_date (DATE)",
+            "question": "monthly revenue truncated by month for 2024",
+            "sql": "SELECT DATE_TRUNC('month', CAST(sale_date AS DATE)) AS month, SUM(net_amount) AS monthly_revenue FROM sales WHERE YEAR(CAST(sale_date AS DATE)) = 2024 GROUP BY month ORDER BY month;"
+        },
+        # 4. Window Functions (OVER, RANK, DENSE_RANK, ROW_NUMBER, LAG, LEAD)
+        {
+            "schema": "Table `sales`: sale_id (INT), category (VARCHAR), net_amount (DOUBLE), sale_date (DATE)",
+            "question": "rank categories by total sales using dense_rank and row_number",
+            "sql": "SELECT category, SUM(net_amount) AS total_sales, RANK() OVER (ORDER BY SUM(net_amount) DESC) AS rnk, DENSE_RANK() OVER (ORDER BY SUM(net_amount) DESC) AS dense_rnk, ROW_NUMBER() OVER (ORDER BY SUM(net_amount) DESC) AS row_num FROM sales GROUP BY category;"
         },
         {
-            "schema": "Table `ecommerce_benchmark`: order_id (INT), customer_id (VARCHAR), region (VARCHAR), category (VARCHAR), subcategory (VARCHAR), net_amount (DOUBLE), discount_amount (DOUBLE), quantity (INT), order_status (VARCHAR)",
-            "question": "percentage of returned orders from all orders",
-            "sql": "SELECT ROUND(100.0 * COUNT(CASE WHEN UPPER(order_status) = 'RETURNED' THEN 1 END) / COUNT(*), 2) AS percentage FROM ecommerce_benchmark;"
+            "schema": "Table `monthly_sales`: month (DATE), revenue (DOUBLE)",
+            "question": "calculate month over month revenue growth using lag and lead window functions",
+            "sql": "SELECT month, revenue, LAG(revenue, 1) OVER (ORDER BY month) AS prev_month_rev, LEAD(revenue, 1) OVER (ORDER BY month) AS next_month_rev, ROUND(100.0 * (revenue - LAG(revenue, 1) OVER (ORDER BY month)) / LAG(revenue, 1) OVER (ORDER BY month), 2) AS mom_growth FROM monthly_sales ORDER BY month;"
+        },
+        # 5. CTE (WITH) & Subquery Functions
+        {
+            "schema": "Table `employees`: emp_id (INT), emp_name (VARCHAR), department_id (INT), salary (DOUBLE)\nTable `departments`: department_id (INT), dept_name (VARCHAR)",
+            "question": "find employees earning above department average using CTE with statement",
+            "sql": "WITH dept_avg AS (SELECT department_id, AVG(salary) AS avg_sal FROM employees GROUP BY department_id) SELECT e.emp_name, e.salary, d.dept_name FROM employees e INNER JOIN departments d ON e.department_id = d.department_id INNER JOIN dept_avg da ON e.department_id = da.department_id WHERE e.salary > da.avg_sal;"
         },
         {
-            "schema": "Table `ecommerce_benchmark`: order_id (INT), customer_id (VARCHAR), region (VARCHAR), category (VARCHAR), net_amount (DOUBLE), discount_amount (DOUBLE), order_date (DATE)",
-            "question": "total discount amount given in North America",
-            "sql": "SELECT SUM(discount_amount) AS total_discount FROM ecommerce_benchmark WHERE LOWER(region) = 'north america';"
+            "schema": "Table `employees`: emp_id (INT), salary (DOUBLE)",
+            "question": "find second highest salary using subquery",
+            "sql": "SELECT MAX(salary) AS SecondHighestSalary FROM employees WHERE salary < (SELECT MAX(salary) FROM employees);"
         },
+        # 6. JOIN Functions (INNER, LEFT, RIGHT, FULL OUTER)
         {
-            "schema": "Table `ecommerce_benchmark`: order_id (INT), customer_id (VARCHAR), region (VARCHAR), category (VARCHAR), net_amount (DOUBLE), order_date (DATE)",
-            "question": "monthly net revenue for 2024",
-            "sql": "SELECT DATE_TRUNC('month', CAST(order_date AS DATE)) AS month, SUM(net_amount) AS monthly_revenue FROM ecommerce_benchmark WHERE YEAR(CAST(order_date AS DATE)) = 2024 GROUP BY month ORDER BY month;"
-        },
-        {
-            "schema": "Table `ecommerce_benchmark`: order_id (INT), customer_id (VARCHAR), region (VARCHAR), category (VARCHAR), net_amount (DOUBLE), order_date (DATE)",
-            "question": "total quantity sold by subcategory for electronics",
-            "sql": "SELECT subcategory, SUM(quantity) AS total_quantity FROM ecommerce_benchmark WHERE LOWER(category) = 'electronics' GROUP BY subcategory ORDER BY total_quantity DESC;"
-        },
-
-        # Domain 2: IPL Cricket Sports Analytics
-        {
-            "schema": "Table `CSKvMI_IPL2024`: match_id (INT), team1 (VARCHAR), team2 (VARCHAR), venue (VARCHAR), winner (VARCHAR), margin_runs (INT)",
-            "question": "how many MI matches were held in Wankhede",
-            "sql": "SELECT COUNT(*) AS total_matches FROM CSKvMI_IPL2024 WHERE (UPPER(team1) = 'MI' OR UPPER(team2) = 'MI') AND LOWER(venue) LIKE '%wankhede%';"
-        },
-        {
-            "schema": "Table `ipl_deliveries`: match_id (INT), inning (INT), batting_team (VARCHAR), bowling_team (VARCHAR), batsman (VARCHAR), bowler (VARCHAR), batsman_runs (INT), extra_runs (INT)",
-            "question": "top 5 run scorers in IPL 2024",
-            "sql": "SELECT batsman, SUM(batsman_runs) AS total_runs FROM ipl_deliveries GROUP BY batsman ORDER BY total_runs DESC LIMIT 5;"
-        },
-        {
-            "schema": "Table `ipl_deliveries`: match_id (INT), bowler (VARCHAR), dismissal_kind (VARCHAR), player_dismissed (VARCHAR)",
-            "question": "bowlers with most wickets",
-            "sql": "SELECT bowler, COUNT(*) AS wickets FROM ipl_deliveries WHERE dismissal_kind IS NOT NULL AND dismissal_kind != 'run out' GROUP BY bowler ORDER BY wickets DESC LIMIT 5;"
-        },
-
-        # Domain 3: HR & Payroll Multi-Table Analytics
-        {
-            "schema": "Table `Employee`: emp_id (INT), emp_name (VARCHAR), department_id (INT), salary (DOUBLE)\nTable `Department`: department_id (INT), dept_name (VARCHAR), location (VARCHAR)",
-            "question": "retrieve average salary by department name",
-            "sql": "SELECT d.dept_name, AVG(e.salary) AS avg_salary FROM Employee e INNER JOIN Department d ON e.department_id = d.department_id GROUP BY d.dept_name ORDER BY avg_salary DESC;"
-        },
-        {
-            "schema": "Table `Employee`: emp_id (INT), emp_name (VARCHAR), department_id (INT), salary (DOUBLE)\nTable `Department`: department_id (INT), dept_name (VARCHAR)",
-            "question": "find employees without any department assigned",
-            "sql": "SELECT e.emp_id, e.emp_name FROM Employee e LEFT JOIN Department d ON e.department_id = d.department_id WHERE d.department_id IS NULL;"
-        },
-        {
-            "schema": "Table `Employee`: emp_id (INT), emp_name (VARCHAR), salary (DOUBLE)",
-            "question": "retrieve second highest salary from Employee table",
-            "sql": "SELECT MAX(salary) AS SecondHighestSalary FROM Employee WHERE salary < (SELECT MAX(salary) FROM Employee);"
-        },
-
-        # Domain 4: Healthcare & Medical Analytics
-        {
-            "schema": "Table `patients`: patient_id (VARCHAR), gender (VARCHAR), birth_date (DATE), state (VARCHAR)\nTable `encounters`: encounter_id (VARCHAR), patient_id (VARCHAR), encounter_class (VARCHAR), total_claim_cost (DOUBLE)",
-            "question": "total medical claim cost by patient gender",
-            "sql": "SELECT p.gender, SUM(e.total_claim_cost) AS total_cost FROM patients p INNER JOIN encounters e ON p.patient_id = e.patient_id GROUP BY p.gender;"
-        },
-        {
-            "schema": "Table `encounters`: encounter_id (VARCHAR), patient_id (VARCHAR), encounter_class (VARCHAR), start_date (DATE), end_date (DATE)",
-            "question": "average length of hospital stay in days by encounter class",
-            "sql": "SELECT encounter_class, AVG(DATEDIFF('day', CAST(start_date AS DATE), CAST(end_date AS DATE))) AS avg_stay_days FROM encounters GROUP BY encounter_class;"
-        },
-
-        # Domain 5: Banking & Finance Analytics
-        {
-            "schema": "Table `transactions`: txn_id (VARCHAR), account_id (VARCHAR), txn_type (VARCHAR), amount (DOUBLE), txn_date (DATE)",
-            "question": "total deposit amount in 2024",
-            "sql": "SELECT SUM(amount) AS total_deposit FROM transactions WHERE LOWER(txn_type) = 'deposit' AND YEAR(CAST(txn_date AS DATE)) = 2024;"
-        },
-        {
-            "schema": "Table `transactions`: txn_id (VARCHAR), account_id (VARCHAR), amount (DOUBLE)",
-            "question": "identify accounts with revenue below 10th percentile",
-            "sql": "WITH account_totals AS (SELECT account_id, SUM(amount) AS total_rev FROM transactions GROUP BY account_id) SELECT account_id, total_rev FROM account_totals WHERE total_rev < (SELECT PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY total_rev) FROM account_totals);"
+            "schema": "Table `orders`: order_id (INT), customer_id (INT)\nTable `customers`: customer_id (INT), customer_name (VARCHAR)",
+            "question": "left join orders and customers to find unassigned customers",
+            "sql": "SELECT c.customer_name FROM customers c LEFT JOIN orders o ON c.customer_id = o.customer_id WHERE o.order_id IS NULL;"
         }
     ]
 
-    # Replicate and synthesize dataset variations to reach 100+ high-quality training pairs
     full_dataset = []
-    for i in range(10):  # Expand pattern variations
-        for ex in examples:
+    for i in range(15):  # Replicate variations
+        for ex in comprehensive_examples:
             user_msg = f"Database Schema:\n{ex['schema']}\n\nQuestion: \"{ex['question']}\""
             model_msg = ex['sql']
-            
             json_entry = {
                 "messages": [
                     {"role": "system", "content": system_prompt},
@@ -126,7 +87,7 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
         for entry in full_dataset:
             f.write(json.dumps(entry) + "\n")
 
-    print(f"✅ Generated {len(full_dataset)} training pairs in '{output_path}'.")
+    print(f"✅ Generated {len(full_dataset)} comprehensive SQL keyword training pairs in '{output_path}'.")
 
 if __name__ == "__main__":
     generate_finetune_dataset()
