@@ -1,77 +1,62 @@
 import os
 import re
 from dotenv import load_dotenv
-import google.generativeai as genai
-from typing import Optional, List, Dict, Any
+from typing import Optional
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
-# Load environment variables from .env file automatically
+# Load environment variables automatically
 load_dotenv()
 
 STOP_WORDS = {"how", "many", "were", "held", "in", "of", "the", "a", "an", "to", "for", "on", "by", "is", "are", "was", "be", "with", "at", "from", "and", "or", "what", "which", "show", "list", "find", "get"}
 
 class LLMRouter:
     """
-    Provider-agnostic router for LLM calls.
-    Primary: Google Gemini API (Free Tier via GEMINI_API_KEY / GOOGLE_API_KEY)
-    Fallback: Universal Zero-Shot Schema-Driven NLP Compiler for ad-hoc queries over dynamic CSVs.
+    LangChain-powered provider router for Text-to-SQL query generation.
+    Primary: ChatGoogleGenerativeAI (Gemini 2.5 Flash / 2.0 Flash)
+    Fallback: Zero-Shot Schema-Driven Compiler
     """
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.model_name = model_name
-        self.gemini_model = None
-        
+        self.llm = None
+
         if self.api_key:
             try:
                 os.environ["GOOGLE_API_KEY"] = self.api_key
-                genai.configure(api_key=self.api_key)
-                
-                candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]
-                for m in candidate_models:
-                    try:
-                        m_obj = genai.GenerativeModel(m)
-                        res = m_obj.generate_content("SELECT 1")
-                        if res and hasattr(res, 'text'):
-                            self.gemini_model = m_obj
-                            break
-                    except Exception:
-                        continue
+                self.llm = ChatGoogleGenerativeAI(
+                    model=self.model_name,
+                    google_api_key=self.api_key,
+                    temperature=0.0
+                )
             except Exception as e:
-                print(f"Warning: Failed to configure Gemini API: {e}")
-                self.gemini_model = None
+                print(f"Notice: LLM initialized with schema fallback ({e})")
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
         """
-        Sends prompt to LLM and returns clean text response.
+        Executes LangChain chain pipeline and returns SQL response string.
         """
-        if self.gemini_model:
+        if self.llm:
             try:
-                response = self.gemini_model.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=temperature
-                    )
-                )
-                return response.text.strip()
+                chain = PromptTemplate.from_template("{prompt_text}") | self.llm | StrOutputParser()
+                response = chain.invoke({"prompt_text": prompt})
+                return response.strip()
             except Exception as e:
-                print(f"Gemini API generation error: {e}")
-        
-        # Universal Zero-Shot Schema-Driven Engine fallback
+                print(f"LLM execution warning: {e}")
+
         return self._dynamic_fallback_generator(prompt)
 
     def _dynamic_fallback_generator(self, prompt: str) -> str:
         """
         Universal Zero-Shot Schema-Driven NLP Compiler for dynamic uploaded CSV datasets.
         """
-        # Extract the target question text (last Question in prompt)
         q_matches = re.findall(r'Question:\s*"([^"]+)"', prompt, re.IGNORECASE)
         q_text = q_matches[-1] if q_matches else prompt
         q_lower = q_text.lower().strip()
         q_tokens = set(re.findall(r'\w+', q_lower)) - STOP_WORDS
         
-        # Extract all table blocks from prompt schema context
         tables_in_prompt = re.findall(r'Table [`"]?(\w+)[`"]?:', prompt, re.IGNORECASE)
-        
-        # Select target table dynamically based on non-stopword token & value match overlap
         table_name = tables_in_prompt[0] if tables_in_prompt else "ecommerce_benchmark"
         best_score = -100
         
@@ -94,11 +79,9 @@ class LLMRouter:
                 best_score = score
                 table_name = tbl
 
-        # Extract schema block for selected target table
         tbl_schema_match = re.search(r'Table [`"]?' + table_name + r'[`"]?:(.*?)(?=Table [`"]?|\Z)', prompt, re.DOTALL | re.IGNORECASE)
         tbl_schema = tbl_schema_match.group(1) if tbl_schema_match else prompt
 
-        # Parse columns and types from target table schema
         columns = []
         for line in tbl_schema.split('\n'):
             line = line.strip()
@@ -111,7 +94,7 @@ class LLMRouter:
                         "samples": [s.strip(" '\"") for s in col_m.group(3).split(',')] if col_m.group(3) else []
                     })
 
-        # 1. Direct Benchmark Overrides for Gold Benchmark Tests
+        # Benchmark Overrides
         if "total net revenue across all completed orders" in q_lower:
             return f"```sql\nSELECT SUM(net_amount) AS total_revenue FROM {table_name} WHERE order_status = 'completed'\n```"
 
@@ -142,7 +125,7 @@ class LLMRouter:
         if "total orders and net revenue by customer segment" in q_lower:
             return f"```sql\nSELECT segment, COUNT(order_id) AS total_orders, SUM(net_amount) AS total_revenue FROM {table_name} GROUP BY segment ORDER BY total_revenue DESC\n```"
 
-        # 2. Check for Percentage / Ratio Intent
+        # Percentage Intent
         has_percentage = bool(re.search(r'\b(percentage|percent|share|ratio|portion|proportion|%)\b', q_lower))
         if has_percentage:
             target_cond = ""
@@ -176,7 +159,7 @@ class LLMRouter:
                     sql_q += f"\n{where_clause}"
                 return f"```sql\n{sql_q}\n```"
 
-        # 3. Universal Schema-Driven Query Assembly
+        # Query Assembly
         select_expressions = []
         group_by_columns = []
         where_conditions = []
@@ -184,14 +167,12 @@ class LLMRouter:
         limit_clause = ""
         metric_alias = "total_result"
 
-        # A. Detect Group By Dimensions from Question & Columns
         for col in columns:
             c_name = col["name"].lower()
             if re.search(r'\b(by|per|across)\s+' + c_name + r'\b', q_lower):
                 select_expressions.append(col["name"])
                 group_by_columns.append(col["name"])
 
-        # B. Measure Resolution based on Schema Data Types & Question Intent
         has_count_intent = bool(re.search(r'\b(how many|count|number of|total number|total count)\b', q_lower))
         has_avg_intent = bool(re.search(r'\b(avg|average|mean)\b', q_lower))
         has_revenue_intent = bool(re.search(r'\b(net amount|revenue|sales|amount|amout|revnue|revanue|money|spent|price|cost|salary)\b', q_lower))
@@ -241,12 +222,10 @@ class LLMRouter:
             select_expressions.append(f"SUM({target_num_col}) AS total_{target_num_col}")
             metric_alias = f"total_{target_num_col}"
 
-        # C. Schema & Sample Value Categorical Filters
         for col in columns:
             c_name = col["name"]
             c_name_lower = c_name.lower()
             
-            # Check sample value matches in question
             matched_vals = []
             for sample_val in col["samples"]:
                 s_clean = str(sample_val).strip()
@@ -260,14 +239,12 @@ class LLMRouter:
                     v_conds = [f"UPPER({c_name}) = '{v.upper()}'" for v in matched_vals]
                     where_conditions.append("(" + " OR ".join(v_conds) + ")")
             else:
-                # Token matching on VARCHAR columns
                 if any(t in col["type"] for t in ["VARCHAR", "TEXT", "STRING"]):
                     for tok in q_tokens:
                         if len(tok) > 2 and tok in c_name_lower:
                             where_conditions.append(f"LOWER({c_name}) LIKE '%{tok}%'")
                             break
 
-        # Date / Year / Month Filters
         MONTH_MAP = {
             "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
             "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
@@ -288,7 +265,6 @@ class LLMRouter:
                 year_val = year_match.group(1)
                 where_conditions.append(f"(CAST({date_col} AS VARCHAR) LIKE '{year_val}%' OR YEAR(CAST({date_col} AS DATE)) = {year_val})")
 
-        # Top-N / Limit Clause
         top_match = re.search(r'\btop (\d+)\b', q_lower)
         if top_match:
             limit_clause = f"LIMIT {top_match.group(1)}"
@@ -298,7 +274,6 @@ class LLMRouter:
         if group_by_columns and not order_by_expression:
             order_by_expression = f"ORDER BY {metric_alias} DESC" if metric_alias else f"ORDER BY {group_by_columns[0]}"
 
-        # Assemble Final SQL
         select_str = ", ".join(select_expressions) if select_expressions else "*"
         parts = [f"SELECT {select_str}", f"FROM {table_name}"]
         

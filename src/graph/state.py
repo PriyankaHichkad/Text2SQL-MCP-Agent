@@ -5,7 +5,7 @@ import pandas as pd
 @dataclass
 class AgentState:
     """
-    State object passed between graph execution nodes.
+    LangGraph Agent State definition tracking Text-to-SQL context, queries, and execution feedback.
     """
     question: str
     catalog: Dict[str, Any] = field(default_factory=dict)
