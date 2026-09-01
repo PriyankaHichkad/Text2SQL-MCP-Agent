@@ -437,6 +437,9 @@ class LLMRouter:
                         target_num_col = col["name"]
                         break
 
+        has_max_intent = bool(re.search(r'\b(highest|max|maximum|top|largest|biggest|most)\b', q_lower))
+        has_min_intent = bool(re.search(r'\b(lowest|min|minimum|bottom|smallest|least)\b', q_lower))
+
         if (has_count_intent and not has_quantity_intent and not has_revenue_intent) or not target_num_col:
             id_col = next((c["name"] for c in columns if re.search(r'(_id|_key|^id$)', c["name"].lower())), None)
             if id_col and "unique" in q_lower:
@@ -448,6 +451,12 @@ class LLMRouter:
         elif has_avg_intent:
             select_expressions.append(f"AVG({target_num_col}) AS avg_{target_num_col}")
             metric_alias = f"avg_{target_num_col}"
+        elif has_max_intent:
+            select_expressions.append(f"MAX({target_num_col}) AS highest_{target_num_col}")
+            metric_alias = f"highest_{target_num_col}"
+        elif has_min_intent:
+            select_expressions.append(f"MIN({target_num_col}) AS lowest_{target_num_col}")
+            metric_alias = f"lowest_{target_num_col}"
         else:
             select_expressions.append(f"SUM({target_num_col}) AS total_{target_num_col}")
             metric_alias = f"total_{target_num_col}"

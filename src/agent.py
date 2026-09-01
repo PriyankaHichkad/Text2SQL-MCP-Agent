@@ -183,11 +183,13 @@ Please fix the error and return ONLY the corrected, valid DuckDB SQL query insid
         
         if row_count == 1 and len(cols) == 1:
             val = df.iloc[0, 0]
-            if isinstance(val, (int, float)):
+            if pd.isna(val) or val is None:
+                state.final_answer = "No matching records found in dataset for the requested filters."
+            elif isinstance(val, (int, float)):
                 formatted_val = f"{val:,.2f}" if isinstance(val, float) else f"{val:,}"
+                state.final_answer = f"**{cols[0]}**: `{formatted_val}`"
             else:
-                formatted_val = str(val)
-            state.final_answer = f"**{cols[0]}**: `{formatted_val}`"
+                state.final_answer = f"**{cols[0]}**: `{str(val)}`"
         else:
             state.final_answer = f"Returned **{row_count}** result rows across columns `{', '.join(cols)}`."
 
