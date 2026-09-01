@@ -2,6 +2,8 @@
 
 > **A production-grade, zero-cost Text-to-SQL AI agent and Streamlit copilot with native MCP server integration, dynamic CSV schema linking, and read-only AST safety guardrails.**
 
+👉 🌐 **Live Web App**: [text2sql-mcp-agent.streamlit.app](https://text2sql-mcp-agent-jxzsy3qnkeqmyfeas6ekkz.streamlit.app)
+
 ---
 
 ## 🌟 Overview
