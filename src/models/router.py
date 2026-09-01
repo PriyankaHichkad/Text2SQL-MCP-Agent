@@ -14,10 +14,10 @@ STOP_WORDS = {"how", "many", "were", "held", "in", "of", "the", "a", "an", "to",
 class LLMRouter:
     """
     LangChain-powered provider router for Text-to-SQL query generation.
-    Primary: ChatGoogleGenerativeAI (Gemini 2.5 Flash / 2.0 Flash / 1.5 Flash)
+    Primary: ChatGoogleGenerativeAI (Gemini 3.6 Flash / 3.5 Flash / 2.5 Flash)
     Fallback: Zero-Shot Schema-Driven Compiler
     """
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-3.6-flash"):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.model_name = model_name
         self.llm = None
@@ -26,7 +26,7 @@ class LLMRouter:
         if self.api_key:
             os.environ["GOOGLE_API_KEY"] = self.api_key
             os.environ["GEMINI_API_KEY"] = self.api_key
-            candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]
+            candidate_models = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
             for m in candidate_models:
                 try:
                     chat_model = ChatGoogleGenerativeAI(
@@ -34,11 +34,13 @@ class LLMRouter:
                         google_api_key=self.api_key,
                         temperature=0.0
                     )
-                    self.llm = chat_model
-                    self.active_engine = f"{m} (LangChain)"
-                    break
+                    res = chat_model.invoke("SELECT 1")
+                    if res and hasattr(res, 'content'):
+                        self.llm = chat_model
+                        self.active_engine = f"{m} (LangChain)"
+                        break
                 except Exception as ex:
-                    print(f"Notice initializing model {m}: {ex}")
+                    print(f"Notice testing model {m}: {ex}")
                     continue
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
