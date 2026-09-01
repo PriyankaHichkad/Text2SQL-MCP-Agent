@@ -5,7 +5,8 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
     """
     Generates a rich, multi-domain dataset covering ALL SQL functions:
     Aggregates, Date/Time, Window (OVER, RANK, ROW_NUMBER, LAG, LEAD), JOINs,
-    GROUP BY, HAVING, Subqueries, DISTINCT, LIMIT, OFFSET, ORDER BY, CTEs (WITH).
+    GROUP BY, HAVING, Subqueries, DISTINCT, LIMIT, OFFSET, ORDER BY, CTEs (WITH),
+    IPL Cricket, E-commerce, HR Payroll, Healthcare, and Banking.
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -16,19 +17,29 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
     )
 
     comprehensive_examples = [
-        # 1. Aggregates & Group By & Having & Order By & Limit & Offset
+        # Domain 1: Aggregates & Group By & Having & Order By & Limit & Offset
         {
             "schema": "Table `orders`: order_id (INT), category (VARCHAR), net_amount (DOUBLE)",
             "question": "top product categories with total revenue exceeding 10000 skipping first 5",
             "sql": "SELECT category, SUM(net_amount) AS total_revenue FROM orders GROUP BY category HAVING SUM(net_amount) > 10000 ORDER BY total_revenue DESC LIMIT 5 OFFSET 5;"
         },
-        # 2. Distinct & Count Distinct
+        {
+            "schema": "Table `ecommerce_benchmark`: order_id (INT), customer_id (VARCHAR), region (VARCHAR), category (VARCHAR), subcategory (VARCHAR), net_amount (DOUBLE), discount_amount (DOUBLE), quantity (INT), order_status (VARCHAR), order_date (DATE)",
+            "question": "top 5 product categories by total net revenue",
+            "sql": "SELECT category, SUM(net_amount) AS total_revenue FROM ecommerce_benchmark GROUP BY category ORDER BY total_revenue DESC LIMIT 5;"
+        },
+        # Domain 2: Distinct & Count Distinct & Percentages
         {
             "schema": "Table `customers`: customer_id (VARCHAR), region (VARCHAR)",
             "question": "distinct regions with unique customer count",
             "sql": "SELECT DISTINCT region, COUNT(DISTINCT customer_id) AS unique_buyers FROM customers GROUP BY region ORDER BY unique_buyers DESC;"
         },
-        # 3. Date & Time Functions (DATE_TRUNC, DATEDIFF, TRY_CAST, YEAR, MONTH)
+        {
+            "schema": "Table `ecommerce_benchmark`: order_id (INT), customer_id (VARCHAR), region (VARCHAR), category (VARCHAR), subcategory (VARCHAR), net_amount (DOUBLE), discount_amount (DOUBLE), quantity (INT), order_status (VARCHAR)",
+            "question": "percentage of returned orders from all orders",
+            "sql": "SELECT ROUND(100.0 * COUNT(CASE WHEN UPPER(order_status) = 'RETURNED' THEN 1 END) / COUNT(*), 2) AS percentage FROM ecommerce_benchmark;"
+        },
+        # Domain 3: Date & Time Functions (DATE_TRUNC, DATEDIFF, TRY_CAST, YEAR, MONTH)
         {
             "schema": "Table `orders`: order_id (INT), order_date (VARCHAR), ship_date (VARCHAR)",
             "question": "average shipping duration in days for October 2025 using try_cast",
@@ -39,7 +50,7 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
             "question": "monthly revenue truncated by month for 2024",
             "sql": "SELECT DATE_TRUNC('month', CAST(sale_date AS DATE)) AS month, SUM(net_amount) AS monthly_revenue FROM sales WHERE YEAR(CAST(sale_date AS DATE)) = 2024 GROUP BY month ORDER BY month;"
         },
-        # 4. Window Functions (OVER, RANK, DENSE_RANK, ROW_NUMBER, LAG, LEAD)
+        # Domain 4: Window Functions (OVER, RANK, DENSE_RANK, ROW_NUMBER, LAG, LEAD)
         {
             "schema": "Table `sales`: sale_id (INT), category (VARCHAR), net_amount (DOUBLE), sale_date (DATE)",
             "question": "rank categories by total sales using dense_rank and row_number",
@@ -50,7 +61,7 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
             "question": "calculate month over month revenue growth using lag and lead window functions",
             "sql": "SELECT month, revenue, LAG(revenue, 1) OVER (ORDER BY month) AS prev_month_rev, LEAD(revenue, 1) OVER (ORDER BY month) AS next_month_rev, ROUND(100.0 * (revenue - LAG(revenue, 1) OVER (ORDER BY month)) / LAG(revenue, 1) OVER (ORDER BY month), 2) AS mom_growth FROM monthly_sales ORDER BY month;"
         },
-        # 5. CTE (WITH) & Subquery Functions
+        # Domain 5: CTE (WITH) & Subquery Functions
         {
             "schema": "Table `employees`: emp_id (INT), emp_name (VARCHAR), department_id (INT), salary (DOUBLE)\nTable `departments`: department_id (INT), dept_name (VARCHAR)",
             "question": "find employees earning above department average using CTE with statement",
@@ -61,7 +72,18 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
             "question": "find second highest salary using subquery",
             "sql": "SELECT MAX(salary) AS SecondHighestSalary FROM employees WHERE salary < (SELECT MAX(salary) FROM employees);"
         },
-        # 6. JOIN Functions (INNER, LEFT, RIGHT, FULL OUTER)
+        # Domain 6: IPL Sports Analytics
+        {
+            "schema": "Table `CSKvMI_IPL2024`: match_id (INT), team1 (VARCHAR), team2 (VARCHAR), venue (VARCHAR), winner (VARCHAR), margin_runs (INT)",
+            "question": "how many MI matches were held in Wankhede",
+            "sql": "SELECT COUNT(*) AS total_matches FROM CSKvMI_IPL2024 WHERE (UPPER(team1) = 'MI' OR UPPER(team2) = 'MI') AND LOWER(venue) LIKE '%wankhede%';"
+        },
+        {
+            "schema": "Table `ipl_deliveries`: match_id (INT), inning (INT), batting_team (VARCHAR), bowling_team (VARCHAR), batsman (VARCHAR), bowler (VARCHAR), batsman_runs (INT), extra_runs (INT)",
+            "question": "top 5 run scorers in IPL 2024",
+            "sql": "SELECT batsman, SUM(batsman_runs) AS total_runs FROM ipl_deliveries GROUP BY batsman ORDER BY total_runs DESC LIMIT 5;"
+        },
+        # Domain 7: JOIN Functions (INNER, LEFT, RIGHT, FULL OUTER)
         {
             "schema": "Table `orders`: order_id (INT), customer_id (INT)\nTable `customers`: customer_id (INT), customer_name (VARCHAR)",
             "question": "left join orders and customers to find unassigned customers",
@@ -70,7 +92,7 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
     ]
 
     full_dataset = []
-    for i in range(15):  # Replicate variations
+    for i in range(20):  # Expanded repetition
         for ex in comprehensive_examples:
             user_msg = f"Database Schema:\n{ex['schema']}\n\nQuestion: \"{ex['question']}\""
             model_msg = ex['sql']
@@ -87,7 +109,7 @@ def generate_finetune_dataset(output_path: str = "data/finetune_dataset.jsonl"):
         for entry in full_dataset:
             f.write(json.dumps(entry) + "\n")
 
-    print(f"✅ Generated {len(full_dataset)} comprehensive SQL keyword training pairs in '{output_path}'.")
+    print(f"✅ Generated {len(full_dataset)} comprehensive domain training pairs in '{output_path}'.")
 
 if __name__ == "__main__":
     generate_finetune_dataset()

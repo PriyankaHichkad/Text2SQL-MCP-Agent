@@ -2,7 +2,7 @@ import os
 import json
 from datasets import load_dataset
 
-def convert_spider_to_finetune(output_path: str = "data/finetune_dataset.jsonl", max_samples: int = 500):
+def convert_spider_to_finetune(output_path: str = "data/finetune_dataset.jsonl", max_samples: int = 700):
     """
     Loads official Yale Spider benchmark dataset from Hugging Face,
     converts it into ChatML format, and merges it into data/finetune_dataset.jsonl.
