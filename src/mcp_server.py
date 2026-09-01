@@ -7,9 +7,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import json
 import duckdb
 from fastmcp import FastMCP
-from src.graph.workflow import Text2SQLWorkflow
-from src.knowledge.catalog import SchemaCatalog
-from src.execution.validator import SQLValidator
+from src.agent import Text2SQLWorkflow
+from src.engine import SchemaCatalog
+from src.sandbox import SQLValidator
 
 # Initialize FastMCP Server
 mcp = FastMCP("Text2SQL-MCP-Agent")
