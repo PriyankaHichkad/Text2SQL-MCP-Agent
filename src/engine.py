@@ -222,13 +222,18 @@ class LLMRouter:
         # Priority 1: Hugging Face Fine-Tuned Model Endpoint
         if self.hf_token and self.hf_repo:
             try:
-                from langchain_huggingface import HuggingFaceEndpoint
-                self.llm = HuggingFaceEndpoint(
-                    repo_id=self.hf_repo,
-                    huggingfacehub_api_token=self.hf_token,
-                    temperature=0.01,
-                    max_new_tokens=512
-                )
+                from huggingface_hub import InferenceClient
+                
+                class CustomHFClient:
+                    def __init__(self, repo_id, token):
+                        self.client = InferenceClient(model=repo_id, token=token)
+                    def invoke(self, prompt_text: str) -> str:
+                        res = self.client.text_generation(prompt_text, max_new_tokens=512, temperature=0.01)
+                        return str(res)
+
+                self.llm = CustomHFClient(self.hf_repo, self.hf_token)
+                # Test connection
+                _ = self.llm.client.get_model_status()
                 self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
                 print(f"✅ Initialized Hugging Face Fine-Tuned Engine: {self.hf_repo}")
                 return
