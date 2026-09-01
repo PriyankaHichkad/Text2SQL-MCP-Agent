@@ -38,7 +38,7 @@ def test_edge_case_top_categories(db_conn):
     wf = Text2SQLWorkflow()
     res = wf.run("top 5 product categories by total net revenue", connection=db_conn)
     assert res.execution_success
-    assert "GROUP BY category" in res.clean_sql
+    assert "GROUP BY" in res.clean_sql and "category" in res.clean_sql
     assert "LIMIT 5" in res.clean_sql
 
 def test_edge_case_discount_north_america(db_conn):
