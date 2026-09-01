@@ -17,8 +17,18 @@ import re
 import sqlglot
 
 # Check Streamlit Cloud Secrets for GEMINI_API_KEY
-if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+if hasattr(st, "secrets"):
+    try:
+        sec_key = None
+        for k in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "gemini_api_key", "google_api_key", "api_key"]:
+            if k in st.secrets:
+                sec_key = str(st.secrets[k]).strip()
+                break
+        if sec_key:
+            os.environ["GEMINI_API_KEY"] = sec_key
+            os.environ["GOOGLE_API_KEY"] = sec_key
+    except Exception:
+        pass
 
 from src.graph.workflow import Text2SQLWorkflow
 from src.knowledge.catalog import SchemaCatalog

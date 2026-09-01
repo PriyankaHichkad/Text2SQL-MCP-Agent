@@ -14,7 +14,7 @@ STOP_WORDS = {"how", "many", "were", "held", "in", "of", "the", "a", "an", "to",
 class LLMRouter:
     """
     LangChain-powered provider router for Text-to-SQL query generation.
-    Primary: ChatGoogleGenerativeAI (Gemini 2.5 Flash / 2.0 Flash)
+    Primary: ChatGoogleGenerativeAI (Gemini 2.5 Flash / 2.0 Flash / 1.5 Flash)
     Fallback: Zero-Shot Schema-Driven Compiler
     """
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
@@ -24,16 +24,22 @@ class LLMRouter:
         self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
 
         if self.api_key:
-            try:
-                os.environ["GOOGLE_API_KEY"] = self.api_key
-                self.llm = ChatGoogleGenerativeAI(
-                    model=self.model_name,
-                    google_api_key=self.api_key,
-                    temperature=0.0
-                )
-                self.active_engine = f"Gemini 2.5 Flash (LangChain)"
-            except Exception as e:
-                print(f"Notice: LLM initialized with schema fallback ({e})")
+            os.environ["GOOGLE_API_KEY"] = self.api_key
+            os.environ["GEMINI_API_KEY"] = self.api_key
+            candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]
+            for m in candidate_models:
+                try:
+                    chat_model = ChatGoogleGenerativeAI(
+                        model=m,
+                        google_api_key=self.api_key,
+                        temperature=0.0
+                    )
+                    self.llm = chat_model
+                    self.active_engine = f"{m} (LangChain)"
+                    break
+                except Exception as ex:
+                    print(f"Notice initializing model {m}: {ex}")
+                    continue
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
         """
@@ -43,7 +49,6 @@ class LLMRouter:
             try:
                 chain = PromptTemplate.from_template("{prompt_text}") | self.llm | StrOutputParser()
                 response = chain.invoke({"prompt_text": prompt})
-                self.active_engine = f"Gemini 2.5 Flash (LangChain)"
                 return response.strip()
             except Exception as e:
                 print(f"LLM execution warning: {e}")
