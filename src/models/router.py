@@ -14,7 +14,7 @@ STOP_WORDS = {"how", "many", "were", "held", "in", "of", "the", "a", "an", "to",
 class LLMRouter:
     """
     LangChain-powered provider router for Text-to-SQL query generation.
-    Primary: ChatGoogleGenerativeAI (Gemini 3.6 Flash / 3.5 Flash / 2.5 Flash)
+    Primary: ChatGoogleGenerativeAI (Gemini 3.6 Flash / 2.5 Flash)
     Fallback: Zero-Shot Schema-Driven Compiler
     """
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-3.6-flash"):
@@ -26,22 +26,16 @@ class LLMRouter:
         if self.api_key:
             os.environ["GOOGLE_API_KEY"] = self.api_key
             os.environ["GEMINI_API_KEY"] = self.api_key
-            candidate_models = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-            for m in candidate_models:
-                try:
-                    chat_model = ChatGoogleGenerativeAI(
-                        model=m,
-                        google_api_key=self.api_key,
-                        temperature=0.0
-                    )
-                    res = chat_model.invoke("SELECT 1")
-                    if res and hasattr(res, 'content'):
-                        self.llm = chat_model
-                        self.active_engine = f"{m} (LangChain)"
-                        break
-                except Exception as ex:
-                    print(f"Notice testing model {m}: {ex}")
-                    continue
+            try:
+                self.llm = ChatGoogleGenerativeAI(
+                    model=self.model_name,
+                    google_api_key=self.api_key,
+                    temperature=0.0,
+                    max_retries=1
+                )
+                self.active_engine = f"{self.model_name} (LangChain)"
+            except Exception as e:
+                print(f"Notice initializing model: {e}")
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
         """
@@ -53,7 +47,17 @@ class LLMRouter:
                 response = chain.invoke({"prompt_text": prompt})
                 return response.strip()
             except Exception as e:
-                print(f"LLM execution warning: {e}")
+                print(f"Primary model generation note: {e}")
+                for alt_m in ["gemini-2.5-flash", "gemini-1.5-flash"]:
+                    try:
+                        alt_llm = ChatGoogleGenerativeAI(model=alt_m, google_api_key=self.api_key, temperature=0.0, max_retries=1)
+                        chain = PromptTemplate.from_template("{prompt_text}") | alt_llm | StrOutputParser()
+                        response = chain.invoke({"prompt_text": prompt})
+                        self.active_engine = f"{alt_m} (LangChain)"
+                        self.llm = alt_llm
+                        return response.strip()
+                    except Exception:
+                        continue
 
         self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
         return self._dynamic_fallback_generator(prompt)

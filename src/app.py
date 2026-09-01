@@ -116,8 +116,9 @@ question = st.text_input(
 
 if question:
     with st.spinner("🤖 Agent analyzing schema, value-aware linking, drafting SQL, and executing safely..."):
-        workflow = Text2SQLWorkflow()
-        state = workflow.run(question, connection=st.session_state.con)
+        if "workflow" not in st.session_state:
+            st.session_state.workflow = Text2SQLWorkflow()
+        state = st.session_state.workflow.run(question, connection=st.session_state.con)
 
     st.markdown("### 📊 Agent Results")
     
