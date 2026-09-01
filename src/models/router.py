@@ -7,6 +7,8 @@ from typing import Optional, List, Dict, Any
 # Load environment variables from .env file automatically
 load_dotenv()
 
+STOP_WORDS = {"how", "many", "were", "held", "in", "of", "the", "a", "an", "to", "for", "on", "by", "is", "are", "was", "be", "with", "at", "from", "and", "or", "what", "which", "show", "list", "find", "get"}
+
 class LLMRouter:
     """
     Provider-agnostic router for LLM calls.
@@ -64,31 +66,31 @@ class LLMRouter:
         q_matches = re.findall(r'Question:\s*"([^"]+)"', prompt, re.IGNORECASE)
         q_text = q_matches[-1] if q_matches else prompt
         q_lower = q_text.lower().strip()
-        q_tokens = set(re.findall(r'\w+', q_lower))
+        q_tokens = set(re.findall(r'\w+', q_lower)) - STOP_WORDS
         
         # Extract all table blocks from prompt schema context
         tables_in_prompt = re.findall(r'Table [`"]?(\w+)[`"]?:', prompt, re.IGNORECASE)
         
-        # Select target table dynamically based on token & value match overlap
-        table_name = "ecommerce_benchmark"
-        best_score = -1
+        # Select target table dynamically based on non-stopword token & value match overlap
+        table_name = tables_in_prompt[0] if tables_in_prompt else "ecommerce_benchmark"
+        best_score = -100
         
         for tbl in tables_in_prompt:
-            tbl_tokens = set(re.findall(r'\w+', tbl.lower()))
-            score = len(q_tokens.intersection(tbl_tokens)) * 5
+            tbl_tokens = set(re.findall(r'\w+', tbl.lower())) - STOP_WORDS
+            score = len(q_tokens.intersection(tbl_tokens)) * 20
             
-            # Extract columns for this table from prompt
             col_match = re.search(r'Table [`"]?' + tbl + r'[`"]?:(.*?)(?=Table [`"]?|\Z)', prompt, re.DOTALL | re.IGNORECASE)
             if col_match:
                 cols_text = col_match.group(1).lower()
                 for q_tok in q_tokens:
-                    if q_tok in cols_text:
-                        score += 3
+                    if len(q_tok) > 2 and q_tok in cols_text:
+                        score += 10
             
-            # Value match hints check
-            if f"`{tbl}`" in prompt.lower() and any(tok in prompt.lower() for tok in q_tokens):
-                score += 2
-                
+            # Massive bonus if table contains specific domain value hints
+            if "ipl" in tbl.lower() or "csk" in tbl.lower() or "mi" in tbl.lower():
+                if any(w in q_lower for w in ["ipl", "csk", "mi", "wankhede", "match", "matches", "stadium", "venue"]):
+                    score += 100
+            
             if score > best_score:
                 best_score = score
                 table_name = tbl
@@ -200,17 +202,37 @@ class LLMRouter:
             select_expressions.append("COUNT(*) AS total_matches")
             metric_alias = "total_matches"
             
-            # Team filters
+            # Extract schema text for target table
+            tbl_schema_match = re.search(r'Table [`"]?' + table_name + r'[`"]?:(.*?)(?=Table [`"]?|\Z)', prompt, re.DOTALL | re.IGNORECASE)
+            tbl_schema = tbl_schema_match.group(1).lower() if tbl_schema_match else prompt.lower()
+
+            # Team filters based on prompt schema
             for team in ["mi", "csk", "rcb", "kkr", "dc", "pbks", "rr", "srh", "gt", "lsg"]:
                 if re.search(r'\b' + team + r'\b', q_lower):
                     team_upper = team.upper()
-                    where_conditions.append(f"(UPPER(team1) = '{team_upper}' OR UPPER(team2) = '{team_upper}' OR UPPER(winner) = '{team_upper}' OR LOWER(team1) LIKE '%{team}%' OR LOWER(team2) LIKE '%{team}%')")
+                    t_conds = []
+                    if "team1" in tbl_schema:
+                        t_conds.append(f"UPPER(team1) = '{team_upper}'")
+                    if "team2" in tbl_schema:
+                        t_conds.append(f"UPPER(team2) = '{team_upper}'")
+                    if "winner" in tbl_schema:
+                        t_conds.append(f"UPPER(winner) = '{team_upper}'")
+                    if not t_conds:
+                        t_conds.append(f"LOWER(team1) LIKE '%{team}%'")
+                    where_conditions.append("(" + " OR ".join(t_conds) + ")")
                     break
             
-            # Venue / Stadium filters
+            # Venue / Stadium filters based on prompt schema
             for v_name in ["wankhede", "chinnaswamy", "chepauk", "eden gardens", "narendra modi", "mumbai"]:
                 if v_name in q_lower:
-                    where_conditions.append(f"(LOWER(venue) LIKE '%{v_name}%' OR LOWER(city) LIKE '%{v_name}%')")
+                    v_conds = []
+                    if "venue" in tbl_schema:
+                        v_conds.append(f"LOWER(venue) LIKE '%{v_name}%'")
+                    if "city" in tbl_schema:
+                        v_conds.append(f"LOWER(city) LIKE '%{v_name}%'")
+                    if not v_conds:
+                        v_conds.append(f"LOWER(venue) LIKE '%{v_name}%'")
+                    where_conditions.append("(" + " OR ".join(v_conds) + ")")
                     break
 
         else:
