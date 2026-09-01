@@ -30,8 +30,8 @@ if hasattr(st, "secrets"):
     except Exception:
         pass
 
-from src.graph.workflow import Text2SQLWorkflow
-from src.knowledge.catalog import SchemaCatalog
+from src.agent import Text2SQLWorkflow
+from src.engine import SchemaCatalog
 
 st.set_page_config(
     page_title="Text2SQL-MCP-Agent",

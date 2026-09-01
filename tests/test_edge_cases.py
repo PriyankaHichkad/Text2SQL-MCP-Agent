@@ -4,7 +4,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.graph.workflow import Text2SQLWorkflow
+from src.agent import Text2SQLWorkflow
 import duckdb
 
 @pytest.fixture

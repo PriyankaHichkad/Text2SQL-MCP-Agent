@@ -1,21 +1,213 @@
 import os
 import re
+import duckdb
 from dotenv import load_dotenv
-from typing import Optional
+from typing import Dict, Any, List, Tuple, Optional
+from rank_bm25 import BM25Okapi
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# Load environment variables automatically
 load_dotenv()
 
 STOP_WORDS = {"how", "many", "were", "held", "in", "of", "the", "a", "an", "to", "for", "on", "by", "is", "are", "was", "be", "with", "at", "from", "and", "or", "what", "which", "show", "list", "find", "get"}
 
+DEFAULT_EXEMPLARS = [
+    {
+        "question": "What is total revenue for completed orders in 2025?",
+        "sql": "SELECT SUM(net_amount) AS total_revenue FROM ecommerce_benchmark WHERE order_status = 'completed' AND YEAR(CAST(order_date AS DATE)) = 2025;"
+    },
+    {
+        "question": "How many total unique customers placed an order in North America?",
+        "sql": "SELECT COUNT(DISTINCT customer_id) AS unique_customers FROM ecommerce_benchmark WHERE LOWER(region) = 'north america';"
+    },
+    {
+        "question": "What is the average order value for Consumer segment?",
+        "sql": "SELECT AVG(net_amount) AS avg_order_value FROM ecommerce_benchmark WHERE segment = 'Consumer';"
+    },
+    {
+        "question": "Show monthly net revenue for 2024",
+        "sql": "SELECT DATE_TRUNC('month', CAST(order_date AS DATE)) AS month, SUM(net_amount) AS monthly_revenue FROM ecommerce_benchmark WHERE YEAR(CAST(order_date AS DATE)) = 2024 GROUP BY month ORDER BY month;"
+    },
+    {
+        "question": "Rank product categories by total net revenue",
+        "sql": "SELECT category, SUM(net_amount) AS total_revenue, RANK() OVER (ORDER BY SUM(net_amount) DESC) AS category_rank FROM ecommerce_benchmark GROUP BY category;"
+    },
+    {
+        "question": "Calculate month-over-month revenue growth using lag",
+        "sql": "WITH monthly_rev AS (SELECT DATE_TRUNC('month', CAST(order_date AS DATE)) AS month, SUM(net_amount) AS rev FROM ecommerce_benchmark GROUP BY month) SELECT month, rev, LAG(rev, 1) OVER (ORDER BY month) AS prev_month_rev, ROUND(100.0 * (rev - LAG(rev, 1) OVER (ORDER BY month)) / LAG(rev, 1) OVER (ORDER BY month), 2) AS mom_growth_pct FROM monthly_rev ORDER BY month;"
+    },
+    {
+        "question": "Retrieve second highest salary from Employee table",
+        "sql": "SELECT MAX(salary) AS SecondHighestSalary FROM Employee WHERE salary < (SELECT MAX(salary) FROM Employee);"
+    },
+    {
+        "question": "Find employees without department (Left Join usage)",
+        "sql": "SELECT e.* FROM Employee e LEFT JOIN Department d ON e.department_id = d.department_id WHERE d.department_id IS NULL;"
+    },
+    {
+        "question": "Identify customers with revenue below 10th percentile",
+        "sql": "WITH cte AS (SELECT customer_id, SUM(total_amount) AS total_revenue FROM Orders GROUP BY customer_id) SELECT customer_id, total_revenue FROM cte WHERE total_revenue < (SELECT PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY total_revenue) FROM cte);"
+    }
+]
+
+
+class SchemaCatalog:
+    """
+    Dynamic schema profiler inspecting DuckDB table structures and sample values.
+    """
+    def __init__(self, db_path: str = "data/sample_warehouse.db"):
+        self.db_path = db_path
+
+    def inspect_schema(self, connection: duckdb.DuckDBPyConnection = None) -> Dict[str, Any]:
+        con = connection
+        close_con = False
+        if con is None:
+            con = duckdb.connect(self.db_path, read_only=True)
+            close_con = True
+
+        catalog = {}
+        try:
+            tables_df = con.execute("SHOW TABLES").fetchdf()
+            table_names = tables_df["name"].tolist() if not tables_df.empty else []
+
+            for tbl in table_names:
+                info_df = con.execute(f"PRAGMA table_info('{tbl}')").fetchdf()
+                columns_info = []
+
+                for _, row in info_df.iterrows():
+                    col_name = str(row["name"])
+                    col_type = str(row["type"])
+                    sample_vals = []
+                    
+                    if any(t in col_type.upper() for t in ["VARCHAR", "TEXT", "STRING"]):
+                        try:
+                            sample_df = con.execute(
+                                f"SELECT DISTINCT \"{col_name}\" FROM \"{tbl}\" WHERE \"{col_name}\" IS NOT NULL LIMIT 15"
+                            ).fetchdf()
+                            sample_vals = [str(v) for v in sample_df[col_name].tolist()]
+                        except Exception:
+                            sample_vals = []
+
+                    columns_info.append({
+                        "name": col_name,
+                        "type": col_type,
+                        "sample_values": sample_vals
+                    })
+
+                catalog[tbl] = {
+                    "table_name": tbl,
+                    "columns": columns_info
+                }
+        finally:
+            if close_con:
+                con.close()
+
+        return catalog
+
+
+class SchemaLinker:
+    """
+    Schema Linker matching keywords, literals, and candidate join relationships.
+    """
+    def link_schema(self, question: str, catalog: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+        value_hints, value_matched_tables = self.find_value_matches(question, catalog)
+        q_lower = question.lower()
+        q_tokens = set(re.findall(r'\w+', q_lower)) - STOP_WORDS
+
+        table_scores = {}
+        for tbl_name, tbl_info in catalog.items():
+            score = 0
+            if tbl_name.lower() not in ["ecommerce_benchmark", "sample_warehouse"]:
+                score += 100
+
+            tbl_tokens = set(re.findall(r'\w+', tbl_name.lower())) - STOP_WORDS
+            score += len(q_tokens.intersection(tbl_tokens)) * 20
+
+            for col in tbl_info.get("columns", []):
+                col_name = col["name"].lower()
+                col_tokens = set(re.findall(r'\w+', col_name)) - STOP_WORDS
+                score += len(q_tokens.intersection(col_tokens)) * 10
+
+            if tbl_name in value_matched_tables:
+                score += 50
+
+            table_scores[tbl_name] = score
+
+        top_tables = sorted(table_scores.keys(), key=lambda k: table_scores[k], reverse=True)
+        pruned_catalog = {tbl: catalog[tbl] for tbl in top_tables}
+        join_hints = self.infer_join_hints(pruned_catalog)
+        return pruned_catalog, join_hints
+
+    def find_value_matches(self, question: str, catalog: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+        q_lower = question.lower()
+        hints, matched_tables = [], []
+
+        for tbl_name, tbl_info in catalog.items():
+            for col in tbl_info.get("columns", []):
+                for val in col.get("sample_values", []):
+                    val_str = str(val).strip()
+                    if val_str and len(val_str) > 1 and val_str.lower() in q_lower:
+                        hints.append(f"Value Match: '{val_str}' belongs to `{tbl_name}.{col['name']}`")
+                        matched_tables.append(tbl_name)
+
+        return hints, matched_tables
+
+    def infer_join_hints(self, catalog: Dict[str, Any]) -> List[str]:
+        hints = []
+        tables = list(catalog.keys())
+        for i in range(len(tables)):
+            for j in range(i + 1, len(tables)):
+                t1, t2 = tables[i], tables[j]
+                cols1 = {c["name"].lower() for c in catalog[t1]["columns"]}
+                cols2 = {c["name"].lower() for c in catalog[t2]["columns"]}
+                shared_keys = cols1.intersection(cols2)
+                for key in shared_keys:
+                    if key.endswith("_id") or key.endswith("_key") or key == "id":
+                        hints.append(f"JOIN Hint: `{t1}.{key} = {t2}.{key}`")
+        return hints
+
+    def prune_catalog(self, question: str, catalog: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+        return self.link_schema(question, catalog)
+
+    def inject_semantic_context(self, question: str) -> str:
+        q_lower = question.lower()
+        rules = []
+        if "revenue" in q_lower or "net amount" in q_lower or "sales" in q_lower:
+            rules.append("- Net Revenue calculation: SUM(net_amount)")
+        if "return" in q_lower or "returned" in q_lower:
+            rules.append("- Return status condition: order_status = 'returned'")
+        if "discount" in q_lower:
+            rules.append("- Discount calculation: SUM(discount_amount)")
+        if "percentage" in q_lower or "share" in q_lower or "%" in q_lower:
+            rules.append("- Percentage calculation: ROUND(100.0 * COUNT(CASE WHEN <condition> THEN 1 END) / COUNT(*), 2)")
+        return "\n".join(rules)
+
+
+class ExemplarRetriever:
+    """
+    RAG retriever searching SQL exemplars via BM25 relevance scoring.
+    """
+    def __init__(self, exemplars: List[Dict[str, str]] = None):
+        self.exemplars = exemplars or DEFAULT_EXEMPLARS
+        corpus = [ex["question"].lower().split() for ex in self.exemplars]
+        self.bm25 = BM25Okapi(corpus)
+
+    def retrieve_exemplars(self, question: str, top_k: int = 2) -> str:
+        tokens = question.lower().split()
+        top_ex = self.bm25.get_top_n(tokens, self.exemplars, n=top_k)
+        if not top_ex:
+            return ""
+
+        res = "Relevant SQL Exemplars:\n"
+        for ex in top_ex:
+            res += f"Question: \"{ex['question']}\"\nSQL: {ex['sql']}\n\n"
+        return res.strip()
+
+
 class LLMRouter:
     """
-    LangChain-powered provider router for Text-to-SQL query generation.
-    Primary: ChatGoogleGenerativeAI (Gemini 3.6 Flash / 2.5 Flash)
-    Fallback: Zero-Shot Schema-Driven Compiler
+    LangChain LCEL Provider Router & Universal Zero-Shot Fallback Compiler.
     """
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-3.6-flash"):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -38,14 +230,10 @@ class LLMRouter:
                 print(f"Notice initializing model: {e}")
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
-        """
-        Executes LangChain chain pipeline and returns SQL response string.
-        """
         if self.llm:
             try:
                 chain = PromptTemplate.from_template("{prompt_text}") | self.llm | StrOutputParser()
-                response = chain.invoke({"prompt_text": prompt})
-                return response.strip()
+                return chain.invoke({"prompt_text": prompt}).strip()
             except Exception as e:
                 print(f"Primary model generation note: {e}")
                 for alt_m in ["gemini-2.5-flash", "gemini-1.5-flash"]:
@@ -63,9 +251,6 @@ class LLMRouter:
         return self._dynamic_fallback_generator(prompt)
 
     def _dynamic_fallback_generator(self, prompt: str) -> str:
-        """
-        Universal Zero-Shot Schema-Driven NLP Compiler for dynamic uploaded CSV datasets.
-        """
         self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
         q_matches = re.findall(r'Question:\s*"([^"]+)"', prompt, re.IGNORECASE)
         q_text = q_matches[-1] if q_matches else prompt
@@ -78,7 +263,7 @@ class LLMRouter:
         
         for tbl in tables_in_prompt:
             score = 0
-            if tbl.lower() != "ecommerce_benchmark" and tbl.lower() != "sample_warehouse":
+            if tbl.lower() not in ["ecommerce_benchmark", "sample_warehouse"]:
                 score += 50
 
             tbl_tokens = set(re.findall(r'\w+', tbl.lower())) - STOP_WORDS

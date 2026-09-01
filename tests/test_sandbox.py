@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import duckdb
 import pytest
-from src.execution.sandbox import QuerySandbox
+from src.sandbox import QuerySandbox
 
 def test_query_execution_in_memory():
     sandbox = QuerySandbox()

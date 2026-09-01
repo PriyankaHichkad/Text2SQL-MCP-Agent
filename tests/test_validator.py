@@ -4,7 +4,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import pytest
-from src.execution.validator import SQLValidator
+from src.sandbox import SQLValidator
 
 def test_valid_select_query():
     validator = SQLValidator(dialect="duckdb")

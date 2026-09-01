@@ -1,15 +1,77 @@
+import re
 import duckdb
-from src.graph.state import AgentState
-from src.graph.intent import classify_intent
-from src.knowledge.schema_linker import SchemaLinker
-from src.knowledge.exemplars import ExemplarRetriever
-from src.models.router import LLMRouter
-from src.execution.validator import SQLValidator
-from src.execution.sandbox import QuerySandbox
+import pandas as pd
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional
+from langgraph.graph import StateGraph, START, END
+
+from src.engine import SchemaCatalog, SchemaLinker, ExemplarRetriever, LLMRouter
+from src.sandbox import QuerySandbox, SQLValidator
+
+@dataclass
+class AgentState:
+    """
+    LangGraph Agent State tracking Text-to-SQL context, queries, engine, and execution feedback.
+    """
+    question: str
+    catalog: Dict[str, Any] = field(default_factory=dict)
+    pruned_catalog: Dict[str, Any] = field(default_factory=dict)
+    join_hints: List[str] = field(default_factory=list)
+    semantic_context: str = ""
+    
+    generated_sql: str = ""
+    clean_sql: str = ""
+    is_valid: bool = False
+    validation_error: str = ""
+    
+    execution_success: bool = False
+    result_df: Optional[pd.DataFrame] = None
+    execution_error: str = ""
+    
+    retry_count: int = 0
+    max_retries: int = 2
+    
+    final_answer: str = ""
+    confidence_score: float = 1.0
+    used_engine: str = "Gemini 3.6 Flash (LangChain)"
+
+
+def classify_intent(question: str, catalog: Dict[str, Any]) -> str:
+    """
+    Classifies question intent into SIMPLE_DETERMINISTIC vs COMPLEX_ANALYTICAL.
+    """
+    q_lower = question.lower().strip()
+
+    COMPLEX_PATTERNS = [
+        r'\b(cte|with\s+cte|with\s+\w+\s+as)\b',
+        r'\b(percentile|percentile_cont|within\s+group)\b',
+        r'\b(lag|lead|over\s*\(|partition\s+by)\b',
+        r'\b(second|2nd|third|3rd)\s+(highest|lowest|top|best)\b',
+        r'\b(subquery|nested\s+query)\b',
+        r'\b(left\s+join|right\s+join|inner\s+join|full\s+join|join)\b',
+        r'\b(without\s+\w+|no\s+\w+\s+assigned|unassigned)\b',
+        r'\b(more\s+than\s+their|higher\s+than\s+their|compared\s+to\s+their)\b'
+    ]
+
+    for pattern in COMPLEX_PATTERNS:
+        if re.search(pattern, q_lower):
+            return "COMPLEX_ANALYTICAL"
+
+    num_tables = len(catalog.keys()) if catalog else 0
+    if num_tables > 1:
+        mentioned_tables = 0
+        for tbl_name in catalog.keys():
+            if tbl_name.lower() in q_lower:
+                mentioned_tables += 1
+        if mentioned_tables >= 2:
+            return "COMPLEX_ANALYTICAL"
+
+    return "SIMPLE_DETERMINISTIC"
+
 
 class Text2SQLGraphNodes:
     """
-    Graph Execution Nodes for LangGraph Text-to-SQL Workflow Pipeline.
+    Execution Nodes for LangGraph Workflow Pipeline.
     """
     def __init__(self, db_path: str = "data/sample_warehouse.db", llm_router: LLMRouter = None):
         self.db_path = db_path
@@ -20,7 +82,6 @@ class Text2SQLGraphNodes:
         self.sandbox = QuerySandbox(db_path=db_path)
 
     def link_schema_node(self, state: AgentState) -> AgentState:
-        """Node 1: Value-Aware Schema & Semantic Context Linking"""
         pruned_cat, join_hints = self.linker.link_schema(state.question, state.catalog)
         state.pruned_catalog = pruned_cat
         state.join_hints = join_hints
@@ -30,10 +91,8 @@ class Text2SQLGraphNodes:
         return state
 
     def generate_sql_node(self, state: AgentState) -> AgentState:
-        """Node 2: Smart Intent-Based Dual Router: Zero-Shot Compiler vs LLM Engine"""
         intent = classify_intent(state.question, state.pruned_catalog or state.catalog)
 
-        # Build prompt format for fallback generator or LLM
         catalog_str = "Database Schema & Sample Values:\n"
         for tbl_name, tbl_info in (state.pruned_catalog or state.catalog).items():
             catalog_str += f"Table `{tbl_name}`:\n"
@@ -51,7 +110,6 @@ class Text2SQLGraphNodes:
             state.used_engine = "Zero-Shot Deterministic Engine (Sub-Millisecond)"
             return state
 
-        # Complex Analytical Intent -> LLM Engine
         join_hints_str = ""
         if state.join_hints:
             join_hints_str = "Candidate Join Relationships:\n" + "\n".join([f"- {h}" for h in state.join_hints]) + "\n\n"
@@ -78,7 +136,6 @@ Rules:
         return state
 
     def validate_and_execute_node(self, state: AgentState, connection: duckdb.DuckDBPyConnection = None) -> AgentState:
-        """Node 3: Validate AST and execute in read-only sandbox"""
         success, df_res, clean_sql, exec_err = self.sandbox.execute_query(state.generated_sql, connection=connection)
         state.is_valid = success or (exec_err == "")
         state.clean_sql = clean_sql
@@ -88,9 +145,7 @@ Rules:
         return state
 
     def self_correct_node(self, state: AgentState) -> AgentState:
-        """Node 4: Execution-Guided AST Self-Correction Node"""
         state.retry_count += 1
-        
         err_msg = state.validation_error if not state.is_valid else state.execution_error
         
         correction_prompt = f"""The SQL query you previously generated produced an error.
@@ -108,7 +163,6 @@ Please fix the error and return ONLY the corrected, valid DuckDB SQL query insid
         return state
 
     def format_answer_node(self, state: AgentState) -> AgentState:
-        """Node 5: Natural Language Answer Formatting Node"""
         if not state.execution_success:
             state.final_answer = f"⚠️ Query Execution Failure (Retries: {state.retry_count}):\n{state.execution_error}"
             state.confidence_score = 0.0
@@ -123,7 +177,6 @@ Please fix the error and return ONLY the corrected, valid DuckDB SQL query insid
         row_count = len(df)
         cols = list(df.columns)
         
-        # Concise answer summary
         if row_count == 1 and len(cols) == 1:
             val = df.iloc[0, 0]
             if isinstance(val, (int, float)):
@@ -135,4 +188,61 @@ Please fix the error and return ONLY the corrected, valid DuckDB SQL query insid
             state.final_answer = f"Returned **{row_count}** result rows across columns `{', '.join(cols)}`."
 
         state.confidence_score = max(0.6, 1.0 - (state.retry_count * 0.15))
+        return state
+
+
+class Text2SQLWorkflow:
+    """
+    LangGraph-powered stateful Text-to-SQL workflow engine.
+    """
+    def __init__(self, db_path: str = "data/sample_warehouse.db"):
+        self.db_path = db_path
+        self.nodes = Text2SQLGraphNodes(db_path=db_path)
+        self.catalog_profiler = SchemaCatalog(db_path=db_path)
+        self.app = self._build_graph()
+
+    def _build_graph(self):
+        graph = StateGraph(AgentState)
+
+        graph.add_node("link_schema", self.nodes.link_schema_node)
+        graph.add_node("generate_sql", self.nodes.generate_sql_node)
+        graph.add_node("validate_and_execute", self.nodes.validate_and_execute_node)
+        graph.add_node("self_correct", self.nodes.self_correct_node)
+        graph.add_node("format_answer", self.nodes.format_answer_node)
+
+        graph.add_edge(START, "link_schema")
+        graph.add_edge("link_schema", "generate_sql")
+        graph.add_edge("generate_sql", "validate_and_execute")
+
+        graph.add_conditional_edges(
+            "validate_and_execute",
+            self._should_retry,
+            {
+                "self_correct": "self_correct",
+                "format_answer": "format_answer"
+            }
+        )
+        graph.add_edge("self_correct", "validate_and_execute")
+        graph.add_edge("format_answer", END)
+
+        return graph.compile()
+
+    def _should_retry(self, state: AgentState) -> str:
+        if not state.execution_success and state.retry_count < state.max_retries:
+            return "self_correct"
+        return "format_answer"
+
+    def run(self, question: str, connection: duckdb.DuckDBPyConnection = None) -> AgentState:
+        catalog = self.catalog_profiler.inspect_schema(connection=connection)
+        state = AgentState(question=question, catalog=catalog)
+
+        state = self.nodes.link_schema_node(state)
+        state = self.nodes.generate_sql_node(state)
+        state = self.nodes.validate_and_execute_node(state, connection=connection)
+
+        while not state.execution_success and state.retry_count < state.max_retries:
+            state = self.nodes.self_correct_node(state)
+            state = self.nodes.validate_and_execute_node(state, connection=connection)
+
+        state = self.nodes.format_answer_node(state)
         return state
