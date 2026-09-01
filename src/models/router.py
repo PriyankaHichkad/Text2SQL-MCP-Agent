@@ -2,7 +2,7 @@ import os
 import re
 from dotenv import load_dotenv
 import google.generativeai as genai
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
 # Load environment variables from .env file automatically
 load_dotenv()
@@ -13,20 +13,31 @@ class LLMRouter:
     Primary: Google Gemini API (Free Tier via GEMINI_API_KEY / GOOGLE_API_KEY)
     Fallback: Universal Zero-Shot Semantic NLP Engine for ad-hoc business queries & evals
     """
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.model_name = model_name
+        self.gemini_model = None
         
         if self.api_key:
             try:
                 os.environ["GOOGLE_API_KEY"] = self.api_key
                 genai.configure(api_key=self.api_key)
-                self.gemini_model = genai.GenerativeModel(self.model_name)
+                
+                # Auto-discover working model version
+                candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]
+                for m in candidate_models:
+                    try:
+                        m_obj = genai.GenerativeModel(m)
+                        # Quick ping check
+                        res = m_obj.generate_content("SELECT 1")
+                        if res and hasattr(res, 'text'):
+                            self.gemini_model = m_obj
+                            break
+                    except Exception:
+                        continue
             except Exception as e:
                 print(f"Warning: Failed to configure Gemini API: {e}")
                 self.gemini_model = None
-        else:
-            self.gemini_model = None
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
         """
@@ -44,7 +55,7 @@ class LLMRouter:
             except Exception as e:
                 print(f"Gemini API generation error: {e}")
         
-        # Universal Zero-Shot Semantic Engine when running in offline mode without GEMINI_API_KEY
+        # Universal Zero-Shot Semantic Engine fallback
         return self._dynamic_fallback_generator(prompt)
 
     def _dynamic_fallback_generator(self, prompt: str) -> str:
