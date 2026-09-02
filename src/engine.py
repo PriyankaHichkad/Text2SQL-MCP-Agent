@@ -216,10 +216,11 @@ class LLMRouter:
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.model_name = model_name or os.getenv("GEMINI_MODEL_NAME", "gemini-3.6-flash")
         
-        self.llm = None
+        self.hf_llm = None
+        self.gemini_llm = None
         self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
 
-        # Priority 1: Hugging Face Fine-Tuned Model Endpoint
+        # Priority 1: Initialize Hugging Face Fine-Tuned Model Endpoint if token exists
         if self.hf_token and self.hf_repo:
             try:
                 from huggingface_hub import InferenceClient
@@ -229,53 +230,53 @@ class LLMRouter:
                         self.client = InferenceClient(model=repo_id, token=token)
                     def generate(self, prompt_text: str) -> str:
                         return self.client.text_generation(prompt_text, max_new_tokens=512, temperature=0.01)
-                    def invoke(self, prompt_dict: dict) -> str:
-                        p_text = prompt_dict.get("prompt_text", str(prompt_dict))
-                        return self.generate(p_text)
 
-                self.llm = CustomHFClient(self.hf_repo, self.hf_token)
+                self.hf_llm = CustomHFClient(self.hf_repo, self.hf_token)
                 self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
                 print(f"✅ Initialized Hugging Face Fine-Tuned Engine: {self.hf_repo}")
-                return
             except Exception as e:
                 print(f"Notice initializing Hugging Face model: {e}")
 
-        # Priority 2: Gemini API / Tuned Gemini Model
+        # Priority 2: Initialize Gemini API Model if key exists
         if self.api_key:
             os.environ["GOOGLE_API_KEY"] = self.api_key
             os.environ["GEMINI_API_KEY"] = self.api_key
             try:
-                self.llm = ChatGoogleGenerativeAI(
+                self.gemini_llm = ChatGoogleGenerativeAI(
                     model=self.model_name,
                     google_api_key=self.api_key,
                     temperature=0.0,
                     max_retries=1
                 )
-                self.active_engine = f"{self.model_name} (LangChain)"
+                if not self.hf_llm:
+                    self.active_engine = f"{self.model_name} (LangChain)"
+                print(f"✅ Initialized Gemini Engine: {self.model_name}")
             except Exception as e:
                 print(f"Notice initializing Gemini model: {e}")
 
-    def generate(self, prompt: str, temperature: float = 0.0) -> str:
-        if self.llm:
-            try:
-                if hasattr(self.llm, "generate") and not isinstance(self.llm, ChatGoogleGenerativeAI):
-                    res = self.llm.generate(prompt)
-                    return str(res).strip()
-                chain = PromptTemplate.from_template("{prompt_text}") | self.llm | StrOutputParser()
-                return chain.invoke({"prompt_text": prompt}).strip()
-            except Exception as e:
-                print(f"Primary model generation note: {e}")
-                for alt_m in ["gemini-2.5-flash", "gemini-1.5-flash"]:
-                    try:
-                        alt_llm = ChatGoogleGenerativeAI(model=alt_m, google_api_key=self.api_key, temperature=0.0, max_retries=1)
-                        chain = PromptTemplate.from_template("{prompt_text}") | alt_llm | StrOutputParser()
-                        response = chain.invoke({"prompt_text": prompt})
-                        self.active_engine = f"{alt_m} (LangChain)"
-                        self.llm = alt_llm
-                        return response.strip()
-                    except Exception:
-                        continue
+        self.llm = self.hf_llm or self.gemini_llm
 
+    def generate(self, prompt: str, temperature: float = 0.0) -> str:
+        # Try Hugging Face first
+        if self.hf_llm:
+            try:
+                res = self.hf_llm.generate(prompt)
+                self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
+                return str(res).strip()
+            except Exception as e:
+                print(f"Notice: Hugging Face call failed ({e}). Falling back to Gemini...")
+
+        # Fallback to Gemini if HF fails or is unconfigured
+        if self.gemini_llm:
+            try:
+                chain = PromptTemplate.from_template("{prompt_text}") | self.gemini_llm | StrOutputParser()
+                res = chain.invoke({"prompt_text": prompt}).strip()
+                self.active_engine = f"{self.model_name} (LangChain)"
+                return res
+            except Exception as e:
+                print(f"Notice: Gemini call failed ({e}).")
+
+        # Fallback to Zero-Shot Compiler only if both LLMs fail
         self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
         return self._dynamic_fallback_generator(prompt)
 
