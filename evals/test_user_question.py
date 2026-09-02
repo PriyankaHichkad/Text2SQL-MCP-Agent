@@ -1,38 +1,32 @@
 import os
 import sys
-import pandas as pd
-import duckdb
 from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.agent import Text2SQLWorkflow
+from src.engine import LLMRouter
 
-def test_second_highest():
+def test_generic_nth():
     load_dotenv()
+    router = LLMRouter()
     
-    con = duckdb.connect()
-    csv_file = "data/ecommerce_benchmark.csv"
-    if os.path.exists(csv_file):
-        df_raw = pd.read_csv(csv_file)
-        con.execute("CREATE TABLE ecommerce_benchmark AS SELECT * FROM df_raw")
-
-    wf = Text2SQLWorkflow()
+    catalog_str = (
+        "Table `ecommerce_benchmark`:\n"
+        "  - net_amount (DOUBLE)\n"
+        "  - region (VARCHAR) (Samples: ['North America'])\n"
+    )
     
-    question = "Show the second highest net order amount in North America"
-    print("=" * 60)
-    print("🧪 TESTING SECOND HIGHEST QUERY ROUTING & CONFIDENCE SCORE")
-    print("=" * 60)
-    print(f"Question        : \"{question}\"")
-    
-    state = wf.run(question, connection=con)
-    
-    print(f"Engine Used     : {state.used_engine}")
-    print(f"Confidence Score: {state.confidence_score}")
-    print(f"Retries         : {state.retry_count}")
-    print(f"Final Answer    : {state.final_answer}")
-    print(f"\nGenerated SQL:\n{state.clean_sql}")
-    print("=" * 60)
+    for q in [
+        "Show the second highest net order amount in North America",
+        "Show the 2nd highest net order amount in North America",
+        "Show the 4th highest net order amount in North America",
+        "Show the 10th highest net order amount in North America"
+    ]:
+        prompt = f"{catalog_str}\nQuestion: \"{q}\""
+        sql = router._dynamic_fallback_generator(prompt)
+        print("=" * 60)
+        print(f"Question: \"{q}\"")
+        print(f"Fallback SQL:\n{sql}")
 
 if __name__ == "__main__":
-    test_second_highest()
+    test_generic_nth()

@@ -437,15 +437,38 @@ class LLMRouter:
                         target_num_col = col["name"]
                         break
 
-        has_second_highest = bool(re.search(r'\b(second|2nd)\s+(highest|largest|top|max)\b', q_lower))
-        has_third_highest = bool(re.search(r'\b(third|3rd)\s+(highest|largest|top|max)\b', q_lower))
-        has_max_intent = bool(re.search(r'\b(highest|max|maximum|top|largest|biggest|most)\b', q_lower)) and not has_second_highest and not has_third_highest
+        WORD_TO_NUM = {
+            "first": 1, "1st": 1,
+            "second": 2, "2nd": 2,
+            "third": 3, "3rd": 3,
+            "fourth": 4, "4th": 4,
+            "fifth": 5, "5th": 5,
+            "sixth": 6, "6th": 6,
+            "seventh": 7, "7th": 7,
+            "eighth": 8, "8th": 8,
+            "ninth": 9, "9th": 9,
+            "tenth": 10, "10th": 10
+        }
+
+        nth_match = re.search(r'\b(\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+(highest|largest|top|max)\b', q_lower)
+        nth_rank = None
+        if nth_match:
+            raw_w = nth_match.group(1)
+            if raw_w in WORD_TO_NUM:
+                nth_rank = WORD_TO_NUM[raw_w]
+            else:
+                num_digits = re.findall(r'\d+', raw_w)
+                if num_digits:
+                    nth_rank = int(num_digits[0])
+
+        has_max_intent = bool(re.search(r'\b(highest|max|maximum|top|largest|biggest|most)\b', q_lower)) and not nth_rank
         has_min_intent = bool(re.search(r'\b(lowest|min|minimum|bottom|smallest|least)\b', q_lower))
 
-        if has_second_highest and target_num_col:
-            where_conditions.append(f"{target_num_col} < (SELECT MAX({target_num_col}) FROM {table_name})")
-            select_expressions.append(f"MAX({target_num_col}) AS second_highest_{target_num_col}")
-            metric_alias = f"second_highest_{target_num_col}"
+        if nth_rank and target_num_col:
+            select_expressions.append(f"{target_num_col} AS rank_{nth_rank}_{target_num_col}")
+            metric_alias = f"rank_{nth_rank}_{target_num_col}"
+            order_by_expression = f"ORDER BY {target_num_col} DESC"
+            limit_clause = f"LIMIT 1 OFFSET {nth_rank - 1}"
         elif (has_count_intent and not has_quantity_intent and not has_revenue_intent) or not target_num_col:
             id_col = next((c["name"] for c in columns if re.search(r'(_id|_key|^id$)', c["name"].lower())), None)
             if id_col and "unique" in q_lower:
