@@ -16,7 +16,7 @@ import plotly.express as px
 import re
 import sqlglot
 
-# Check Streamlit Cloud Secrets for GEMINI_API_KEY
+# Check Streamlit Cloud Secrets for API keys & tokens
 if hasattr(st, "secrets"):
     try:
         sec_key = None
@@ -27,6 +27,22 @@ if hasattr(st, "secrets"):
         if sec_key:
             os.environ["GEMINI_API_KEY"] = sec_key
             os.environ["GOOGLE_API_KEY"] = sec_key
+
+        hf_token = None
+        for k in ["HUGGINGFACEHUB_API_TOKEN", "HF_TOKEN", "huggingfacehub_api_token", "hf_token"]:
+            if k in st.secrets:
+                hf_token = str(st.secrets[k]).strip()
+                break
+        if hf_token:
+            os.environ["HUGGINGFACEHUB_API_TOKEN"] = hf_token
+
+        hf_repo = None
+        for k in ["HF_MODEL_REPO", "hf_model_repo"]:
+            if k in st.secrets:
+                hf_repo = str(st.secrets[k]).strip()
+                break
+        if hf_repo:
+            os.environ["HF_MODEL_REPO"] = hf_repo
     except Exception:
         pass
 
