@@ -229,21 +229,20 @@ class LLMRouter:
                     def __init__(self, repo_id, token):
                         self.repo_id = repo_id
                         self.token = token
-                        self.url = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+                        self.url = "https://router.huggingface.co/v1/chat/completions"
 
                     def generate(self, prompt_text: str) -> str:
                         headers = {
                             "Authorization": f"Bearer {self.token}",
                             "Content-Type": "application/json"
                         }
-                        # Try configured repo first, fallback to Qwen2.5-Coder on Hugging Face Serverless API if custom repo unsupported
-                        target_models = [self.repo_id, "Qwen/Qwen2.5-Coder-7B-Instruct", "meta-llama/Llama-3.2-3B-Instruct"]
+                        target_models = [self.repo_id, "Qwen/Qwen2.5-Coder-32B-Instruct", "meta-llama/Llama-3.3-70B-Instruct"]
                         last_err = None
                         for m_id in target_models:
                             payload = {
                                 "model": m_id,
                                 "messages": [
-                                    {"role": "system", "content": "You are a Text-to-SQL expert writing DuckDB SQL queries."},
+                                    {"role": "system", "content": "You are an expert SQL Data Analyst writing DuckDB SQL queries."},
                                     {"role": "user", "content": prompt_text}
                                 ],
                                 "temperature": 0.01,
@@ -255,7 +254,7 @@ class LLMRouter:
                                     data = resp.json()
                                     return data["choices"][0]["message"]["content"]
                                 else:
-                                    last_err = f"HTTP {resp.status_code}: {resp.text}"
+                                    last_err = f"Model {m_id} HTTP {resp.status_code}: {resp.text}"
                             except Exception as ex:
                                 last_err = str(ex)
                         raise RuntimeError(f"HuggingFace API Error: {last_err}")
