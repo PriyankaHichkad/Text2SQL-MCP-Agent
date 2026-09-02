@@ -151,10 +151,10 @@ Rules:
         state.execution_error = exec_err
         return state
 
-    def llm_judge_evaluator_node(self, state: AgentState) -> AgentState:
+    def semantic_constraint_evaluator_node(self, state: AgentState) -> AgentState:
         """
-        LLM Judge Evaluator Node: Inspects generated SQL against the user question for constraint alignment.
-        Triggers self-correction retry if zero-shot missed requested constraints (e.g. 'last day of month').
+        Semantic Constraint Evaluator Node: Inspects generated SQL against the user question for constraint alignment.
+        Triggers self-correction retry if heuristic engine missed requested constraints (e.g. 'last day of month').
         """
         if not state.execution_success:
             return state
@@ -166,14 +166,14 @@ Rules:
         if any(w in q_lower for w in ["last day", "end of month", "last day of"]) and ("LAST_DAY" not in sql_upper and "= 31" not in sql_upper and "DAY(" not in sql_upper):
             if state.retry_count < state.max_retries:
                 state.is_valid = False
-                state.validation_error = "LLM Judge Evaluation: SQL query missed requested date boundary ('last day of month'). Generate DuckDB SQL with LAST_DAY(order_date) or DAY(order_date) = 31."
+                state.validation_error = "Constraint Guardrail Feedback: SQL query missed requested date boundary ('last day of month'). Generate DuckDB SQL with LAST_DAY(order_date) or DAY(order_date) = 31."
                 return state
 
         # Check ranking constraints
         if any(w in q_lower for w in ["second highest", "2nd highest", "4th highest"]) and ("OFFSET" not in sql_upper and "< (SELECT" not in sql_upper):
             if state.retry_count < state.max_retries:
                 state.is_valid = False
-                state.validation_error = "LLM Judge Evaluation: Question requested N-th rank (2nd highest) but SQL lacks OFFSET or subquery ranking."
+                state.validation_error = "Constraint Guardrail Feedback: Question requested N-th rank (2nd highest) but SQL lacks OFFSET or subquery ranking."
                 return state
 
         return state
@@ -253,17 +253,17 @@ class Text2SQLWorkflow:
         graph.add_node("link_schema", self.nodes.link_schema_node)
         graph.add_node("generate_sql", self.nodes.generate_sql_node)
         graph.add_node("validate_and_execute", self.nodes.validate_and_execute_node)
-        graph.add_node("llm_judge", self.nodes.llm_judge_evaluator_node)
+        graph.add_node("constraint_evaluator", self.nodes.semantic_constraint_evaluator_node)
         graph.add_node("self_correct", self.nodes.self_correct_node)
         graph.add_node("format_answer", self.nodes.format_answer_node)
 
         graph.add_edge(START, "link_schema")
         graph.add_edge("link_schema", "generate_sql")
         graph.add_edge("generate_sql", "validate_and_execute")
-        graph.add_edge("validate_and_execute", "llm_judge")
+        graph.add_edge("validate_and_execute", "constraint_evaluator")
 
         graph.add_conditional_edges(
-            "llm_judge",
+            "constraint_evaluator",
             self._should_retry,
             {
                 "self_correct": "self_correct",

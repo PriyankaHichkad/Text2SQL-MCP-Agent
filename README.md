@@ -1,6 +1,6 @@
 # Text2SQL-MCP-Agent
 
-> **A production-grade, zero-cost Text-to-SQL AI agent and Streamlit copilot powered by LangGraph, LangChain, native MCP server integration, dynamic CSV schema linking, and read-only AST safety guardrails.**
+> **A modular, high-performance Text-to-SQL AI agent and Streamlit copilot powered by LangGraph, LangChain, native MCP server integration, dynamic CSV schema linking, and read-only AST safety guardrails.**
 
 **Live Web App**: [text2sql-mcp-agent.streamlit.app](https://text2sql-mcp-agent-jxzsy3qnkeqmyfeas6ekkz.streamlit.app)
 
@@ -8,13 +8,14 @@
 
 ## Overview
 
-**Text2SQL-MCP-Agent** bridges the gap between natural language business questions and enterprise data warehouses / dynamic CSV files. Built on state-of-the-art AI system design principles (Spider 2.0 research, RESDSQL, DIN-SQL) and orchestrated via **LangGraph StateGraph** and **LangChain LCEL Runnables**, it converts natural language text into precise, AST-validated read-only SQL queries, executes them safely against DuckDB, and returns tabular insights alongside natural language answers.
+**Text2SQL-MCP-Agent** bridges the gap between natural language business questions and enterprise data warehouses / dynamic CSV files. Built on modular AI system design principles and orchestrated via **LangGraph StateGraph** and **LangChain LCEL Runnables**, it converts natural language text into precise, AST-validated read-only SQL queries, executes them safely against DuckDB, and returns tabular insights alongside natural language answers.
 
 ### Key Features
-- **LangGraph & LangChain Engine**: Stateful graph orchestration (`StateGraph`) with nodes for schema linking, SQL drafting, LLM Judge constraint evaluation, AST validation, execution, self-correction, and answer formatting.
-- **3-Tier Routing Architecture**: Automatically routes easy deterministic queries to a **sub-millisecond Zero-Shot Engine**, complex analytical queries to your **Hugging Face Fine-Tuned Model (`Priyanka221105/text2sql-qwen2.5-duckdb` / `Qwen/Qwen2.5-Coder-32B-Instruct`)**, and uses **Gemini 3.6 Flash** as an online backup.
-- **LLM Judge Constraint Evaluator**: Evaluates generated SQL against the user's natural language question for semantic completeness (catching date boundaries like "last day of month", complex filters, or ranks) and triggers self-correction handoff to the fine-tuned model if constraints are missed.
+- **LangGraph & LangChain Engine**: Stateful graph orchestration (`StateGraph`) with nodes for schema linking, SQL drafting, semantic constraint alignment evaluation, AST validation, execution, self-correction, and answer formatting.
+- **3-Tier Routing Architecture**: Automatically routes simple deterministic queries to a **sub-millisecond Heuristic SQL Synthesizer**, complex analytical queries to your **Hugging Face Fine-Tuned Model (`Priyanka221105/text2sql-qwen2.5-duckdb` / `Qwen/Qwen2.5-Coder-32B-Instruct`)**, and uses **Gemini 3.6 Flash** as an online backup.
+- **Semantic Constraint Alignment Guardrail**: Inspects generated SQL against the user's natural language question for completeness (catching relative date boundaries like "last day of month", complex filters, or ranks) and triggers self-correction handoff to the fine-tuned model if constraints are missed.
 - **Multi-Dialect SQL Transpilation (MySQL Default)**: Automatically formats and transpiles executed queries into **MySQL Dialect** (with on-the-fly toggling between MySQL, DuckDB, PostgreSQL, and Snowflake via `sqlglot`).
+- **Automated GitHub Actions CI/CD**: Integrated GitHub Actions CI workflow (`.github/workflows/ci.yml`) for automated test suite execution on every push and pull request.
 - **Consolidated Clean Codebase**: Streamlined down to 4 self-contained Python modules (`src/agent.py`, `src/engine.py`, `src/sandbox.py`, `src/app.py`) for maximum human readability and zero UI clutter.
 - **Dynamic Multi-Table CSV Ingestion**: Drag-and-drop multiple CSV files via Streamlit or MCP; DuckDB automatically registers each file as a separate queryable table.
 - **Automated Multi-Table JOIN Discovery**: Automatically detects shared Primary/Foreign Key relationships across tables (e.g. `orders.customer_id <-> customers.customer_id`) and injects candidate join conditions into prompt context.
@@ -38,7 +39,7 @@
 │               LANGGRAPH & LANGCHAIN 3-TIER ROUTING AGENT                 │
 │                                                                          │
 │  INTENT CLASSIFIER & ROUTER                                              │
-│    ├─ Tier 1: Simple Aggregations & Summary ➔ Zero-Shot Engine (0ms, $0)  │
+│    ├─ Tier 1: Simple Aggregations & Summary ➔ Heuristic Synthesizer (0ms)│
 │    ├─ Tier 2: Complex Joins, CTEs, MoM ➔ Hugging Face Fine-Tuned LLM     │
 │    └─ Tier 3: Online LLM Backup ➔ Gemini 3.6 Flash (LangChain)           │
 │                                                                          │
@@ -46,7 +47,7 @@
 │    ├─ Node 1: Value-Aware Schema & Semantic Context Linking              │
 │    ├─ Node 2: SQL Drafting & Exemplars Injection                         │
 │    ├─ Node 3: Read-Only DuckDB Sandbox Execution                         │
-│    ├─ Node 4: LLM Judge Constraint Alignment Evaluator                   │
+│    ├─ Node 4: Semantic Constraint Alignment Guardrail                    │
 │    ├─ Node 5: Bounded Self-Correction Retry Loop (Max 2 retries)         │
 │    └─ Node 6: Multi-Dialect Transpilation (MySQL) & NL Formatting        │
 └────────────────────────────────────┬─────────────────────────────────────┘
@@ -106,6 +107,9 @@ python -m src.mcp_server
 
 ```
 Text2SQL-MCP-Agent/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                      # GitHub Actions CI automated test workflow
 ├── README.md                           # System overview & setup guide
 ├── pyproject.toml                      # Project metadata & dependencies
 ├── requirements.txt                    # Pip dependencies
@@ -135,7 +139,7 @@ Run the automated test suite to verify AST security guardrails, dual-intent rout
 ```bash
 pytest
 ```
-*Current benchmark result: **14/14 tests passing in 23.94 seconds (100% success)**.*
+*Current test suite result: **14/14 tests passing in hermetic execution (100% success)**.*
 
 ---
 
