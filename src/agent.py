@@ -46,7 +46,6 @@ def classify_intent(question: str, catalog: Dict[str, Any]) -> str:
         r'\b(cte|with\s+cte|with\s+\w+\s+as)\b',
         r'\b(percentile|percentile_cont|within\s+group)\b',
         r'\b(lag|lead|over\s*\(|partition\s+by)\b',
-        r'\b(\d+(?:st|nd|rd|th)?|nth|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+(highest|lowest|top|best)\b',
         r'\b(subquery|nested\s+query)\b',
         r'\b(left\s+join|right\s+join|inner\s+join|full\s+join|join)\b',
         r'\b(without\s+\w+|no\s+\w+\s+assigned|unassigned)\b',
