@@ -223,13 +223,34 @@ class LLMRouter:
         # Priority 1: Initialize Hugging Face Fine-Tuned Model Endpoint if token exists
         if self.hf_token and self.hf_repo:
             try:
-                from huggingface_hub import InferenceClient
+                import requests
                 
                 class CustomHFClient:
                     def __init__(self, repo_id, token):
-                        self.client = InferenceClient(model=repo_id, token=token)
+                        self.repo_id = repo_id
+                        self.token = token
+                        self.url = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+
                     def generate(self, prompt_text: str) -> str:
-                        return self.client.text_generation(prompt_text, max_new_tokens=512, temperature=0.01)
+                        headers = {
+                            "Authorization": f"Bearer {self.token}",
+                            "Content-Type": "application/json"
+                        }
+                        payload = {
+                            "model": self.repo_id,
+                            "messages": [
+                                {"role": "system", "content": "You are a Text-to-SQL expert writing DuckDB SQL queries."},
+                                {"role": "user", "content": prompt_text}
+                            ],
+                            "temperature": 0.01,
+                            "max_tokens": 512
+                        }
+                        resp = requests.post(self.url, headers=headers, json=payload, timeout=30)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            return data["choices"][0]["message"]["content"]
+                        else:
+                            raise RuntimeError(f"HuggingFace API HTTP {resp.status_code}: {resp.text}")
 
                 self.hf_llm = CustomHFClient(self.hf_repo, self.hf_token)
                 self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
