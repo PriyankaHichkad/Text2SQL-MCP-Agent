@@ -437,10 +437,16 @@ class LLMRouter:
                         target_num_col = col["name"]
                         break
 
-        has_max_intent = bool(re.search(r'\b(highest|max|maximum|top|largest|biggest|most)\b', q_lower))
+        has_second_highest = bool(re.search(r'\b(second|2nd)\s+(highest|largest|top|max)\b', q_lower))
+        has_third_highest = bool(re.search(r'\b(third|3rd)\s+(highest|largest|top|max)\b', q_lower))
+        has_max_intent = bool(re.search(r'\b(highest|max|maximum|top|largest|biggest|most)\b', q_lower)) and not has_second_highest and not has_third_highest
         has_min_intent = bool(re.search(r'\b(lowest|min|minimum|bottom|smallest|least)\b', q_lower))
 
-        if (has_count_intent and not has_quantity_intent and not has_revenue_intent) or not target_num_col:
+        if has_second_highest and target_num_col:
+            where_conditions.append(f"{target_num_col} < (SELECT MAX({target_num_col}) FROM {table_name})")
+            select_expressions.append(f"MAX({target_num_col}) AS second_highest_{target_num_col}")
+            metric_alias = f"second_highest_{target_num_col}"
+        elif (has_count_intent and not has_quantity_intent and not has_revenue_intent) or not target_num_col:
             id_col = next((c["name"] for c in columns if re.search(r'(_id|_key|^id$)', c["name"].lower())), None)
             if id_col and "unique" in q_lower:
                 select_expressions.append(f"COUNT(DISTINCT {id_col}) AS unique_count")

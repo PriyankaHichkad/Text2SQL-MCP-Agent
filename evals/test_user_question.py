@@ -6,65 +6,33 @@ from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.agent import Text2SQLGraphNodes, AgentState
+from src.agent import Text2SQLWorkflow
 
-def test_user_question():
+def test_second_highest():
     load_dotenv()
-    nodes = Text2SQLGraphNodes()
     
-    # Test 1: 2014
-    q_2014 = "Show the highest net order amount in europe in 2014"
-    state_2014 = AgentState(
-        question=q_2014,
-        catalog={
-            "ecommerce_benchmark": {
-                "table_name": "ecommerce_benchmark",
-                "columns": [
-                    {"name": "net_amount", "type": "DOUBLE", "samples": [299.99]},
-                    {"name": "region", "type": "VARCHAR", "samples": ["Europe"]},
-                    {"name": "order_date", "type": "DATE", "samples": ["2024-06-15"]}
-                ]
-            }
-        }
-    )
-    state_2014 = nodes.generate_sql_node(state_2014)
-
-    print("=" * 60)
-    print("🧪 TEST 1: QUESTION FOR 2014")
-    print("=" * 60)
-    print(f"Question   : \"{q_2014}\"")
-    print(f"Generated SQL:\n{state_2014.generated_sql}")
-
-    # Test 2: 2024 against actual dataset
-    q_2024 = "Show the highest net order amount in europe in 2024"
-    state_2024 = AgentState(
-        question=q_2024,
-        catalog={
-            "ecommerce_benchmark": {
-                "table_name": "ecommerce_benchmark",
-                "columns": [
-                    {"name": "net_amount", "type": "DOUBLE", "samples": [299.99]},
-                    {"name": "region", "type": "VARCHAR", "samples": ["Europe"]},
-                    {"name": "order_date", "type": "DATE", "samples": ["2024-06-15"]}
-                ]
-            }
-        }
-    )
-    state_2024 = nodes.generate_sql_node(state_2024)
-
-    print("\n=" * 60)
-    print("🧪 TEST 2: QUESTION FOR 2024")
-    print("=" * 60)
-    print(f"Question   : \"{q_2024}\"")
-    print(f"Generated SQL:\n{state_2024.generated_sql}")
-    
+    con = duckdb.connect()
     csv_file = "data/ecommerce_benchmark.csv"
     if os.path.exists(csv_file):
-        con = duckdb.connect()
         df_raw = pd.read_csv(csv_file)
         con.execute("CREATE TABLE ecommerce_benchmark AS SELECT * FROM df_raw")
-        res_df = con.execute("SELECT MAX(net_amount) AS highest_net_amount FROM ecommerce_benchmark WHERE UPPER(region) = 'EUROPE' AND YEAR(CAST(order_date AS DATE)) = 2024").fetchdf()
-        print(f"\nActual Database Result for 2024:\n{res_df}")
+
+    wf = Text2SQLWorkflow()
+    
+    question = "Show the second highest net order amount in North America"
+    print("=" * 60)
+    print("🧪 TESTING SECOND HIGHEST QUERY ROUTING & CONFIDENCE SCORE")
+    print("=" * 60)
+    print(f"Question        : \"{question}\"")
+    
+    state = wf.run(question, connection=con)
+    
+    print(f"Engine Used     : {state.used_engine}")
+    print(f"Confidence Score: {state.confidence_score}")
+    print(f"Retries         : {state.retry_count}")
+    print(f"Final Answer    : {state.final_answer}")
+    print(f"\nGenerated SQL:\n{state.clean_sql}")
+    print("=" * 60)
 
 if __name__ == "__main__":
-    test_user_question()
+    test_second_highest()
