@@ -67,12 +67,12 @@ st.markdown("""
 st.markdown('<div class="main-title">Text2SQL-MCP-Agent</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">Autonomous Text-to-SQL Analytics Agent over Data Warehouses & Dynamic CSVs</div>', unsafe_allow_html=True)
 
-# Helper function to format SQL into broad multi-line formatted string
-def format_pretty_sql(sql_str: str) -> str:
+# Helper function to format SQL into broad multi-line formatted string with dialect transpilation
+def format_pretty_sql(sql_str: str, dialect: str = "mysql") -> str:
     if not sql_str:
         return ""
     try:
-        return sqlglot.transpile(sql_str, read="duckdb", write="duckdb", pretty=True)[0]
+        return sqlglot.transpile(sql_str, read="duckdb", write=dialect, pretty=True)[0]
     except Exception:
         res = sql_str
         for kw in ["FROM", "LEFT JOIN", "INNER JOIN", "JOIN", "WHERE", "GROUP BY", "ORDER BY", "LIMIT"]:
@@ -97,6 +97,10 @@ if "con" not in st.session_state:
 
 # Sidebar: CSV File Upload & Dataset Selection
 with st.sidebar:
+    st.header("SQL Output Dialect")
+    sql_dialect = st.selectbox("Select Target SQL Dialect", ["mysql", "duckdb", "postgres", "snowflake"], index=0, help="Formats and transpiles executed SQL into target dialect (e.g. MySQL)")
+
+    st.markdown("---")
     st.header("Data Ingestion")
     
     uploaded_files = st.file_uploader(
@@ -144,11 +148,11 @@ if question:
         st.error(state.final_answer)
 
     # 2. Broad Full-Width Validated SQL Query Block
-    st.markdown("#### Validated SQL Query")
+    st.markdown(f"#### Validated SQL Query ({sql_dialect.upper()} Dialect)")
     raw_sql = state.clean_sql or state.generated_sql
-    formatted_sql = format_pretty_sql(raw_sql)
+    formatted_sql = format_pretty_sql(raw_sql, dialect=sql_dialect)
     st.code(formatted_sql, language="sql")
-    st.caption(f"Engine: `{state.used_engine}` | Confidence Score: `{state.confidence_score}` | Retries: `{state.retry_count}`")
+    st.caption(f"Engine: `{state.used_engine}` | Dialect: `{sql_dialect.upper()}` | Confidence Score: `{state.confidence_score}` | Retries: `{state.retry_count}`")
 
     st.markdown("---")
 
