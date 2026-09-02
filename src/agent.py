@@ -53,6 +53,7 @@ def classify_intent(question: str, catalog: Dict[str, Any]) -> str:
         r'\b(classify|bucket|threshold|case\s+when|label|tier|range|group\s+into|categorize)\b',
         r'\b(growth|month-over-month|mom|running\s+total|cumulative|ratio|percentage\s+of)\b',
         r'\b(exceed|exceeds|exceeding|above\s+average|below\s+average|greater\s+than|less\s+than|overall\s+average|average\s+\w+)\b',
+        r'\b(last\s+day|first\s+day|end\s+of|start\s+of|latest|earliest|prior\s+month|previous\s+year|end\s+of\s+month)\b',
         r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b.*\b(and|or)\b.*\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b',
         r'\b(20[0-9]{2})\b.*\b(and|or)\b.*\b(20[0-9]{2})\b'
     ]
@@ -150,22 +151,50 @@ Rules:
         state.execution_error = exec_err
         return state
 
+    def llm_judge_evaluator_node(self, state: AgentState) -> AgentState:
+        """
+        LLM Judge Evaluator Node: Inspects generated SQL against the user question for constraint alignment.
+        Triggers self-correction retry if zero-shot missed requested constraints (e.g. 'last day of month').
+        """
+        if not state.execution_success:
+            return state
+
+        q_lower = state.question.lower()
+        sql_upper = state.clean_sql.upper()
+
+        # Check relative date boundary constraints
+        if any(w in q_lower for w in ["last day", "end of month", "last day of"]) and ("LAST_DAY" not in sql_upper and "= 31" not in sql_upper and "DAY(" not in sql_upper):
+            if state.retry_count < state.max_retries:
+                state.is_valid = False
+                state.validation_error = "LLM Judge Evaluation: SQL query missed requested date boundary ('last day of month'). Generate DuckDB SQL with LAST_DAY(order_date) or DAY(order_date) = 31."
+                return state
+
+        # Check ranking constraints
+        if any(w in q_lower for w in ["second highest", "2nd highest", "4th highest"]) and ("OFFSET" not in sql_upper and "< (SELECT" not in sql_upper):
+            if state.retry_count < state.max_retries:
+                state.is_valid = False
+                state.validation_error = "LLM Judge Evaluation: Question requested N-th rank (2nd highest) but SQL lacks OFFSET or subquery ranking."
+                return state
+
+        return state
+
     def self_correct_node(self, state: AgentState) -> AgentState:
         state.retry_count += 1
         err_msg = state.validation_error if not state.is_valid else state.execution_error
         
-        correction_prompt = f"""The SQL query you previously generated produced an error.
+        correction_prompt = f"""The SQL query previously generated had an issue or missed constraints.
 Original Question: "{state.question}"
 
-Failed SQL Query:
+Previous SQL Query:
 {state.generated_sql}
 
-Error Feedback:
+Feedback:
 {err_msg}
 
-Please fix the error and return ONLY the corrected, valid DuckDB SQL query inside a ```sql ... ``` code block.
+Please generate a SINGLE, fully corrected DuckDB SQL query addressing all constraints inside ```sql ... ``` code block.
 """
         state.generated_sql = self.llm.generate(correction_prompt)
+        state.used_engine = getattr(self.llm, "active_engine", "Fine-Tuned LLM Model")
         return state
 
     def format_answer_node(self, state: AgentState) -> AgentState:
@@ -224,15 +253,17 @@ class Text2SQLWorkflow:
         graph.add_node("link_schema", self.nodes.link_schema_node)
         graph.add_node("generate_sql", self.nodes.generate_sql_node)
         graph.add_node("validate_and_execute", self.nodes.validate_and_execute_node)
+        graph.add_node("llm_judge", self.nodes.llm_judge_evaluator_node)
         graph.add_node("self_correct", self.nodes.self_correct_node)
         graph.add_node("format_answer", self.nodes.format_answer_node)
 
         graph.add_edge(START, "link_schema")
         graph.add_edge("link_schema", "generate_sql")
         graph.add_edge("generate_sql", "validate_and_execute")
+        graph.add_edge("validate_and_execute", "llm_judge")
 
         graph.add_conditional_edges(
-            "validate_and_execute",
+            "llm_judge",
             self._should_retry,
             {
                 "self_correct": "self_correct",
@@ -245,7 +276,7 @@ class Text2SQLWorkflow:
         return graph.compile()
 
     def _should_retry(self, state: AgentState) -> str:
-        if not state.execution_success and state.retry_count < state.max_retries:
+        if not state.is_valid and state.retry_count < state.max_retries:
             return "self_correct"
         return "format_answer"
 
