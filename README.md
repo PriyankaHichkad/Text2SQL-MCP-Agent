@@ -11,16 +11,17 @@
 **Text2SQL-MCP-Agent** bridges the gap between natural language business questions and enterprise data warehouses / dynamic CSV files. Built on state-of-the-art AI system design principles (Spider 2.0 research, RESDSQL, DIN-SQL) and orchestrated via **LangGraph StateGraph** and **LangChain LCEL Runnables**, it converts natural language text into precise, AST-validated read-only SQL queries, executes them safely against DuckDB, and returns tabular insights alongside natural language answers.
 
 ### 🔑 Key Features
-- **LangGraph & LangChain Engine**: Stateful graph orchestration (`StateGraph`) with nodes for schema linking, SQL drafting, AST validation, execution, self-correction, and answer formatting.
-- **Dual-Routing Intent Architecture**: Automatically routes simple aggregations, percentages, top-N, and monthly trends to a **sub-millisecond Zero-Shot Engine ($0 cost)** while routing complex joins, CTEs, and window functions to **Gemini 3.6 Flash**.
-- **Consolidated Clean Codebase**: Streamlined down to 4 self-contained Python modules (`src/agent.py`, `src/engine.py`, `src/sandbox.py`, `src/app.py`) for maximum human readability.
-- **100% Free & Open-Source Stack**: Operates with zero paid API costs using Google Gemini Free Tier, local DuckDB, and rank-bm25.
+- **LangGraph & LangChain Engine**: Stateful graph orchestration (`StateGraph`) with nodes for schema linking, SQL drafting, LLM Judge constraint evaluation, AST validation, execution, self-correction, and answer formatting.
+- **3-Tier Routing Architecture**: Automatically routes easy deterministic queries to a **sub-millisecond Zero-Shot Engine**, complex analytical queries to your **Hugging Face Fine-Tuned Model (`Priyanka221105/text2sql-qwen2.5-duckdb` / `Qwen/Qwen2.5-Coder-32B-Instruct`)**, and uses **Gemini 3.6 Flash** as an online backup.
+- **LLM Judge Constraint Evaluator**: Evaluates generated SQL against the user's natural language question for semantic completeness (catching date boundaries like "last day of month", complex filters, or ranks) and triggers self-correction handoff to the fine-tuned model if constraints are missed.
+- **Multi-Dialect SQL Transpilation (MySQL Default)**: Automatically formats and transpiles executed queries into **MySQL Dialect** (with on-the-fly toggling between MySQL, DuckDB, PostgreSQL, and Snowflake via `sqlglot`).
+- **Consolidated Clean Codebase**: Streamlined down to 4 self-contained Python modules (`src/agent.py`, `src/engine.py`, `src/sandbox.py`, `src/app.py`) for maximum human readability and zero UI clutter.
 - **Dynamic Multi-Table CSV Ingestion**: Drag-and-drop multiple CSV files via Streamlit or MCP; DuckDB automatically registers each file as a separate queryable table.
 - **Automated Multi-Table JOIN Discovery**: Automatically detects shared Primary/Foreign Key relationships across tables (e.g. `orders.customer_id <-> customers.customer_id`) and injects candidate join conditions into prompt context.
 - **Value-Aware Categorical Linking**: Matches literal text values (e.g. `'Consumer'`, `'Seattle'`) against sample categorical values across database columns.
 - **AST Safety Guardrails (`SQLGlot`)**: Statically parses SQL syntax trees to enforce single read-only `SELECT` queries and prevent SQL injection or DDL/DML mutation statements.
 - **Native Model Context Protocol (MCP)**: Exposes `@mcp.tool()` and `@mcp.resource()` endpoints so Claude Desktop, Antigravity IDE, Cursor, and AI agents can query the warehouse.
-- **Streamlit Web UI (`src/app.py`)**: Interactive web dashboard featuring CSV drag-and-drop, dynamic schema inspector, chat bar, SQL query viewer, active engine badge, and Plotly visual charts.
+- **Streamlit Web UI (`src/app.py`)**: Interactive web dashboard featuring CSV drag-and-drop, dynamic schema inspector, chat bar, multi-dialect SQL query viewer, active engine badge, and Plotly visual charts.
 
 ---
 
@@ -34,18 +35,20 @@
                                      │
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│               LANGGRAPH & LANGCHAIN DUAL-ROUTING AGENT                   │
+│               LANGGRAPH & LANGCHAIN 3-TIER ROUTING AGENT                 │
 │                                                                          │
 │  INTENT CLASSIFIER & ROUTER                                              │
-│    ├─ Simple Aggregations & Summary ➔ ⚡ Zero-Shot Engine (0ms, $0)     │
-│    └─ Complex Joins, CTEs, Subqueries ➔ 🤖 Gemini 3.6 Flash (LangChain)  │
+│    ├─ Tier 1: Simple Aggregations & Summary ➔ Zero-Shot Engine (0ms, $0)  │
+│    ├─ Tier 2: Complex Joins, CTEs, MoM ➔ Hugging Face Fine-Tuned LLM     │
+│    └─ Tier 3: Online LLM Backup ➔ Gemini 3.6 Flash (LangChain)           │
 │                                                                          │
 │  LANGGRAPH STATEGRAPH NODES                                              │
 │    ├─ Node 1: Value-Aware Schema & Semantic Context Linking              │
 │    ├─ Node 2: SQL Drafting & Exemplars Injection                         │
-│    ├─ Node 3: SQLGlot AST Validation & Read-Only DuckDB Sandbox          │
-│    ├─ Node 4: Bounded Self-Correction Retry Loop (Max 2 retries)         │
-│    └─ Node 5: Natural Language Formatting & Confidence Scoring           │
+│    ├─ Node 3: Read-Only DuckDB Sandbox Execution                         │
+│    ├─ Node 4: LLM Judge Constraint Alignment Evaluator                   │
+│    ├─ Node 5: Bounded Self-Correction Retry Loop (Max 2 retries)         │
+│    └─ Node 6: Multi-Dialect Transpilation (MySQL) & NL Formatting        │
 └────────────────────────────────────┬─────────────────────────────────────┘
                                      │
                                      ▼
