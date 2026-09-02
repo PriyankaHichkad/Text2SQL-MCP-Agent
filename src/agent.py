@@ -153,8 +153,10 @@ Rules:
 
     def semantic_constraint_evaluator_node(self, state: AgentState) -> AgentState:
         """
-        Semantic Constraint Evaluator Node: Inspects generated SQL against the user question for constraint alignment.
-        Triggers self-correction retry if heuristic engine missed requested constraints (e.g. 'last day of month').
+        Generalized Semantic Constraint Alignment Guardrail:
+        Dynamically verifies that generated SQL covers all categories, metrics, date bounds,
+        and ranking constraints specified in the natural language question.
+        Triggers self-correction handoff if a constraint is missing.
         """
         if not state.execution_success:
             return state
@@ -162,18 +164,43 @@ Rules:
         q_lower = state.question.lower()
         sql_upper = state.clean_sql.upper()
 
-        # Check relative date boundary constraints
-        if any(w in q_lower for w in ["last day", "end of month", "last day of"]) and ("LAST_DAY" not in sql_upper and "= 31" not in sql_upper and "DAY(" not in sql_upper):
-            if state.retry_count < state.max_retries:
+        if state.retry_count >= state.max_retries:
+            return state
+
+        # 1. Date & Time Boundary Check
+        date_keywords = ["last day", "end of month", "first day", "start of year", "previous year", "prior month", "latest", "earliest"]
+        if any(w in q_lower for w in date_keywords):
+            if not any(f in sql_upper for f in ["LAST_DAY", "DATE_TRUNC", "DAY(", "MONTH(", "YEAR(", "MAX(", "MIN(", "= 31", "= 1"]):
                 state.is_valid = False
-                state.validation_error = "Constraint Guardrail Feedback: SQL query missed requested date boundary ('last day of month'). Generate DuckDB SQL with LAST_DAY(order_date) or DAY(order_date) = 31."
+                state.validation_error = "Constraint Guardrail Feedback: SQL query is missing requested relative date boundary filter (e.g. LAST_DAY, DATE_TRUNC, or MAX date)."
                 return state
 
-        # Check ranking constraints
-        if any(w in q_lower for w in ["second highest", "2nd highest", "4th highest"]) and ("OFFSET" not in sql_upper and "< (SELECT" not in sql_upper):
-            if state.retry_count < state.max_retries:
+        # 2. Ranking & N-th Ordinal Check
+        rank_keywords = ["highest", "lowest", "2nd", "second", "3rd", "third", "4th", "fourth", "top", "bottom"]
+        if any(w in q_lower for w in rank_keywords):
+            if not any(k in sql_upper for k in ["ORDER BY", "LIMIT", "OFFSET", "RANK()", "ROW_NUMBER()"]):
                 state.is_valid = False
-                state.validation_error = "Constraint Guardrail Feedback: Question requested N-th rank (2nd highest) but SQL lacks OFFSET or subquery ranking."
+                state.validation_error = "Constraint Guardrail Feedback: Question requested ordering or ranking, but SQL query is missing ORDER BY, LIMIT, or window functions."
+                return state
+
+        # 3. Categorical Value Alignment Check (Schema linking matched values)
+        if state.linked_schema:
+            for tbl_info in state.linked_schema.values():
+                for col in tbl_info.get("columns", []):
+                    for sample_val in col.get("samples", []):
+                        val_str = str(sample_val).strip()
+                        if val_str and len(val_str) > 2 and val_str.lower() in q_lower:
+                            if val_str.upper() not in sql_upper and val_str.lower() not in sql_upper.lower():
+                                state.is_valid = False
+                                state.validation_error = f"Constraint Guardrail Feedback: Question explicitly filters for categorical value '{val_str}', but generated SQL does not filter for it in a WHERE clause."
+                                return state
+
+        # 4. Aggregation Metric Check
+        agg_keywords = ["total", "sum", "average", "mean", "count", "how many", "number of"]
+        if any(w in q_lower for w in agg_keywords):
+            if not any(f in sql_upper for f in ["SUM(", "COUNT(", "AVG(", "MIN(", "MAX("]):
+                state.is_valid = False
+                state.validation_error = "Constraint Guardrail Feedback: Question requested an aggregation (SUM/COUNT/AVG), but SQL query is missing aggregate functions."
                 return state
 
         return state
