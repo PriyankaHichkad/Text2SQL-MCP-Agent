@@ -531,7 +531,7 @@ class LLMRouter:
             else:
                 if any(t in col["type"] for t in ["VARCHAR", "TEXT", "STRING"]):
                     for tok in q_tokens:
-                        if len(tok) > 2 and tok not in {"order", "amount", "total", "sum", "avg", "highest", "lowest", "net", "value", "count", "number"} and tok in c_name_lower:
+                        if len(tok) > 2 and tok not in {"order", "amount", "total", "sum", "avg", "highest", "lowest", "net", "value", "count", "number", "category", "categories", "product", "products", "subcategory", "sales", "exceed", "average"} and tok in c_name_lower:
                             where_conditions.append(f"LOWER({c_name}) LIKE '%{tok}%'")
                             break
 

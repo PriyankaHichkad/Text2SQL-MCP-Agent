@@ -53,6 +53,7 @@ def classify_intent(question: str, catalog: Dict[str, Any]) -> str:
         r'\b(more\s+than\s+their|higher\s+than\s+their|compared\s+to\s+their)\b',
         r'\b(classify|bucket|threshold|case\s+when|label|tier|range|group\s+into|categorize)\b',
         r'\b(growth|month-over-month|mom|running\s+total|cumulative|ratio|percentage\s+of)\b',
+        r'\b(exceed|exceeds|exceeding|above\s+average|below\s+average|greater\s+than|less\s+than|overall\s+average|average\s+\w+)\b',
         r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b.*\b(and|or)\b.*\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b',
         r'\b(20[0-9]{2})\b.*\b(and|or)\b.*\b(20[0-9]{2})\b'
     ]
