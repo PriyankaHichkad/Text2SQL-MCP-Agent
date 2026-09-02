@@ -199,13 +199,13 @@ Please generate a SINGLE, fully corrected DuckDB SQL query addressing all constr
 
     def format_answer_node(self, state: AgentState) -> AgentState:
         if not state.execution_success:
-            state.final_answer = f"⚠️ Query Execution Failure (Retries: {state.retry_count}):\n{state.execution_error}"
+            state.final_answer = f"Query Execution Failure (Retries: {state.retry_count}):\n{state.execution_error}"
             state.confidence_score = 0.0
             return state
 
         df = state.result_df
         if df is None or df.empty:
-            state.final_answer = "ℹ️ Query executed successfully, but returned 0 rows matching your criteria."
+            state.final_answer = "Query executed successfully, but returned 0 rows matching your criteria."
             state.confidence_score = 0.9
             return state
 

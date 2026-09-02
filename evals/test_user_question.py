@@ -21,7 +21,7 @@ def test_last_day_question():
     
     question = "how many furniture were sold on the last day of the july month"
     print("=" * 60)
-    print("🧪 TESTING LLM JUDGE EVALUATION & LAST DAY OF MONTH QUERY")
+    print("TESTING LLM JUDGE EVALUATION & LAST DAY OF MONTH QUERY")
     print("=" * 60)
     print(f"Question        : \"{question}\"")
     

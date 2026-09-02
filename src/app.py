@@ -51,7 +51,6 @@ from src.engine import SchemaCatalog
 
 st.set_page_config(
     page_title="Text2SQL-MCP-Agent",
-    page_icon="⚡",
     layout="wide"
 )
 
@@ -65,7 +64,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">⚡ Text2SQL-MCP-Agent</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">Text2SQL-MCP-Agent</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">Autonomous Text-to-SQL Analytics Agent over Data Warehouses & Dynamic CSVs</div>', unsafe_allow_html=True)
 
 # Helper function to format SQL into broad multi-line formatted string
@@ -98,7 +97,7 @@ if "con" not in st.session_state:
 
 # Sidebar: CSV File Upload & Dataset Selection
 with st.sidebar:
-    st.header("📂 Data Ingestion")
+    st.header("Data Ingestion")
     
     uploaded_files = st.file_uploader(
         "Upload CSV File(s)", 
@@ -115,7 +114,7 @@ with st.sidebar:
             st.sidebar.success(f"Loaded `{tbl_name}` ({len(df_upload)} rows)")
 
     st.markdown("---")
-    st.header("🔍 Schema Inspector")
+    st.header("Schema Inspector")
     catalog_profiler = SchemaCatalog()
     cat = catalog_profiler.inspect_schema(connection=st.session_state.con)
     
@@ -126,17 +125,17 @@ with st.sidebar:
 
 # Main Chat & Query Interface
 question = st.text_input(
-    "💬 Ask a natural language business question:",
+    "Ask a natural language business question:",
     placeholder="e.g., Show top 5 product categories by net revenue OR What is net amount that europe got from furniture?"
 )
 
 if question:
-    with st.spinner("🤖 Agent analyzing schema, value-aware linking, drafting SQL, and executing safely..."):
+    with st.spinner("Agent analyzing schema, value-aware linking, drafting SQL, and executing safely..."):
         if "workflow" not in st.session_state:
             st.session_state.workflow = Text2SQLWorkflow()
         state = st.session_state.workflow.run(question, connection=st.session_state.con)
 
-    st.markdown("### 📊 Agent Results")
+    st.markdown("### Agent Results")
     
     # 1. Natural Language Answer (Full Width)
     if state.execution_success:
@@ -145,7 +144,7 @@ if question:
         st.error(state.final_answer)
 
     # 2. Broad Full-Width Validated SQL Query Block
-    st.markdown("#### 📜 Validated SQL Query")
+    st.markdown("#### Validated SQL Query")
     raw_sql = state.clean_sql or state.generated_sql
     formatted_sql = format_pretty_sql(raw_sql)
     st.code(formatted_sql, language="sql")
@@ -157,12 +156,12 @@ if question:
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown("#### 📥 One-Click Exports")
+        st.markdown("#### Exports")
         exp_c1, exp_c2, exp_c3 = st.columns(3)
         
         # SQL Query Export (.sql file)
         exp_c1.download_button(
-            label="📄 Export Query (.sql)",
+            label="Export Query (.sql)",
             data=formatted_sql,
             file_name="executed_query.sql",
             mime="text/plain",
@@ -172,7 +171,7 @@ if question:
         # Tabular Data Export (.csv file)
         if state.execution_success and state.result_df is not None and not state.result_df.empty:
             exp_c2.download_button(
-                label="📊 Export Data (.csv)",
+                label="Export Data (.csv)",
                 data=state.result_df.to_csv(index=False),
                 file_name="query_results.csv",
                 mime="text/csv",
@@ -190,7 +189,7 @@ if question:
                 "data": state.result_df.to_dict(orient="records")
             }
             exp_c3.download_button(
-                label="📋 Export MCP (.json)",
+                label="Export MCP (.json)",
                 data=json.dumps(mcp_payload, indent=2, default=str),
                 file_name="mcp_response.json",
                 mime="application/json",
@@ -198,7 +197,7 @@ if question:
             )
 
     with col2:
-        st.markdown("#### 📋 Tabular Query Results")
+        st.markdown("#### Tabular Query Results")
         if state.execution_success and state.result_df is not None and not state.result_df.empty:
             df = state.result_df
             st.dataframe(df, use_container_width=True)
@@ -209,13 +208,13 @@ if question:
             categorical_cols = df.select_dtypes(include=['object', 'category', 'string']).columns.tolist()
             
             if metric_cols and categorical_cols:
-                st.markdown("#### 📈 Smart Visual Insight")
+                st.markdown("#### Visual Insight")
                 y_col = metric_cols[0]
                 x_col = categorical_cols[0]
                 fig = px.bar(df, x=x_col, y=y_col, title=f"{y_col} by {x_col}", color=x_col)
                 st.plotly_chart(fig, use_container_width=True)
             elif len(metric_cols) >= 2:
-                st.markdown("#### 📈 Smart Visual Insight")
+                st.markdown("#### Visual Insight")
                 fig = px.scatter(df, x=metric_cols[0], y=metric_cols[1], title=f"{metric_cols[1]} vs {metric_cols[0]}")
                 st.plotly_chart(fig, use_container_width=True)
         elif state.execution_success:

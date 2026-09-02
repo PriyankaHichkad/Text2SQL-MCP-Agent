@@ -261,7 +261,7 @@ class LLMRouter:
 
                 self.hf_llm = CustomHFClient(self.hf_repo, self.hf_token)
                 self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
-                print(f"✅ Initialized Hugging Face Fine-Tuned Engine: {self.hf_repo}")
+                print(f"Initialized Hugging Face Fine-Tuned Engine: {self.hf_repo}")
             except Exception as e:
                 print(f"Notice initializing Hugging Face model: {e}")
 
@@ -278,7 +278,7 @@ class LLMRouter:
                 )
                 if not self.hf_llm:
                     self.active_engine = f"{self.model_name} (LangChain)"
-                print(f"✅ Initialized Gemini Engine: {self.model_name}")
+                print(f"Initialized Gemini Engine: {self.model_name}")
             except Exception as e:
                 print(f"Notice initializing Gemini model: {e}")
 
