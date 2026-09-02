@@ -193,8 +193,16 @@ Please fix the error and return ONLY the corrected, valid DuckDB SQL query insid
         else:
             state.final_answer = f"Returned **{row_count}** result rows across columns `{', '.join(cols)}`."
 
-        base_confidence = 0.65 if "Fallback" in state.used_engine else 0.95
-        state.confidence_score = round(max(0.3, base_confidence - (state.retry_count * 0.15)), 2)
+        # Dynamic Confidence Score calculation based on empirical runtime metrics
+        score = 1.0
+        if state.retry_count > 0:
+            score -= (state.retry_count * 0.20)
+        if state.result_df is not None and state.result_df.empty:
+            score -= 0.15
+        if "Fallback" in state.used_engine:
+            score -= 0.25
+
+        state.confidence_score = round(max(0.1, min(1.0, score)), 2)
         return state
 
 
