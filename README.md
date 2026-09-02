@@ -1,16 +1,16 @@
-# Text2SQL-MCP-Agent ⚡
+# Text2SQL-MCP-Agent
 
 > **A production-grade, zero-cost Text-to-SQL AI agent and Streamlit copilot powered by LangGraph, LangChain, native MCP server integration, dynamic CSV schema linking, and read-only AST safety guardrails.**
 
-👉 🌐 **Live Web App**: [text2sql-mcp-agent.streamlit.app](https://text2sql-mcp-agent-jxzsy3qnkeqmyfeas6ekkz.streamlit.app)
+**Live Web App**: [text2sql-mcp-agent.streamlit.app](https://text2sql-mcp-agent-jxzsy3qnkeqmyfeas6ekkz.streamlit.app)
 
 ---
 
-## 🌟 Overview
+## Overview
 
 **Text2SQL-MCP-Agent** bridges the gap between natural language business questions and enterprise data warehouses / dynamic CSV files. Built on state-of-the-art AI system design principles (Spider 2.0 research, RESDSQL, DIN-SQL) and orchestrated via **LangGraph StateGraph** and **LangChain LCEL Runnables**, it converts natural language text into precise, AST-validated read-only SQL queries, executes them safely against DuckDB, and returns tabular insights alongside natural language answers.
 
-### 🔑 Key Features
+### Key Features
 - **LangGraph & LangChain Engine**: Stateful graph orchestration (`StateGraph`) with nodes for schema linking, SQL drafting, LLM Judge constraint evaluation, AST validation, execution, self-correction, and answer formatting.
 - **3-Tier Routing Architecture**: Automatically routes easy deterministic queries to a **sub-millisecond Zero-Shot Engine**, complex analytical queries to your **Hugging Face Fine-Tuned Model (`Priyanka221105/text2sql-qwen2.5-duckdb` / `Qwen/Qwen2.5-Coder-32B-Instruct`)**, and uses **Gemini 3.6 Flash** as an online backup.
 - **LLM Judge Constraint Evaluator**: Evaluates generated SQL against the user's natural language question for semantic completeness (catching date boundaries like "last day of month", complex filters, or ranks) and triggers self-correction handoff to the fine-tuned model if constraints are missed.
@@ -25,7 +25,7 @@
 
 ---
 
-## 🏗️ System Design Architecture
+## System Design Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -59,7 +59,7 @@
 
 ---
 
-## 🛠️ Quickstart Guide
+## Quickstart Guide
 
 ### 1. Installation
 Clone the repository and install dependencies:
@@ -102,7 +102,7 @@ python -m src.mcp_server
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 Text2SQL-MCP-Agent/
@@ -129,25 +129,23 @@ Text2SQL-MCP-Agent/
 
 ---
 
-## 🧪 Evals & Verification
+## Evals & Verification
 
 Run the automated test suite to verify AST security guardrails, dual-intent routing, and execution sandbox safety:
 ```bash
 pytest
 ```
-*Current benchmark result: **11/11 tests passing in 3.95 seconds (100% success)**.*
+*Current benchmark result: **14/14 tests passing in 23.94 seconds (100% success)**.*
 
 ---
 
-## 🛠️ Tools & Technologies
+## Tools & Technologies
 
-- 🐍 [Python 3.10+](https://www.python.org/downloads/) — Core programming language
-- 🦜🔗 [LangChain](https://www.langchain.com/) & [LangGraph](https://www.langchain.com/langgraph) — Stateful agent graph orchestration & LCEL Runnables
-- 🦆 [DuckDB](https://duckdb.org/) — In-memory analytical database engine
-- ⚡ [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — Open protocol for AI tools & context
-- 🚀 [FastMCP](https://github.com/jlowin/fastmcp) — High-level Python MCP server framework
-- 📊 [Streamlit](https://streamlit.io/) — Interactive web application interface
-- 🛡️ [SQLGlot](https://github.com/tobymao/sqlglot) — SQL parser, AST validator & transpiler
-- 🤖 [Google Gemini API](https://ai.google.dev/) — LLM reasoning & SQL query generation (Free Tier)
-
-
+- [Python 3.10+](https://www.python.org/downloads/) — Core programming language
+- [LangChain](https://www.langchain.com/) & [LangGraph](https://www.langchain.com/langgraph) — Stateful agent graph orchestration & LCEL Runnables
+- [DuckDB](https://duckdb.org/) — In-memory analytical database engine
+- [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — Open protocol for AI tools & context
+- [FastMCP](https://github.com/jlowin/fastmcp) — High-level Python MCP server framework
+- [Streamlit](https://streamlit.io/) — Interactive web application interface
+- [SQLGlot](https://github.com/tobymao/sqlglot) — SQL parser, AST validator & transpiler
+- [Google Gemini API](https://ai.google.dev/) — LLM reasoning & SQL query generation (Free Tier)

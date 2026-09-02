@@ -34,7 +34,7 @@ TEST_EVAL_QUERIES = [
 
 def run_benchmark():
     print("=" * 60)
-    print("⚡ TEXT-TO-SQL FINE-TUNING BENCHMARK EVALUATION ⚡")
+    print("TEXT-TO-SQL FINE-TUNING BENCHMARK EVALUATION")
     print("=" * 60)
 
     con = duckdb.connect()
@@ -70,8 +70,8 @@ def run_benchmark():
 
         print(f"[{i}/{total_queries}] Question: \"{test['question']}\"")
         print(f"      Engine Used   : {state.used_engine}")
-        print(f"      AST Valid     : {'✅ YES' if is_valid else '❌ NO'}")
-        print(f"      Execution OK  : {'✅ YES' if exec_ok else '❌ NO'}")
+        print(f"      AST Valid     : {'YES' if is_valid else 'NO'}")
+        print(f"      Execution OK  : {'YES' if exec_ok else 'NO'}")
         print(f"      Latency       : {latency:.2f} ms")
         print("-" * 60)
 
