@@ -220,7 +220,7 @@ class LLMRouter:
         self.gemini_llm = None
         self.active_engine = "Zero-Shot Schema Compiler (Fallback)"
 
-        # Priority 1: Initialize Hugging Face Fine-Tuned Model Endpoint if token exists
+        # Priority 1: Initialize Hugging Face Fine-Tuned / Serverless Model Endpoint if token exists
         if self.hf_token and self.hf_repo:
             try:
                 import requests
@@ -236,21 +236,29 @@ class LLMRouter:
                             "Authorization": f"Bearer {self.token}",
                             "Content-Type": "application/json"
                         }
-                        payload = {
-                            "model": self.repo_id,
-                            "messages": [
-                                {"role": "system", "content": "You are a Text-to-SQL expert writing DuckDB SQL queries."},
-                                {"role": "user", "content": prompt_text}
-                            ],
-                            "temperature": 0.01,
-                            "max_tokens": 512
-                        }
-                        resp = requests.post(self.url, headers=headers, json=payload, timeout=30)
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            return data["choices"][0]["message"]["content"]
-                        else:
-                            raise RuntimeError(f"HuggingFace API HTTP {resp.status_code}: {resp.text}")
+                        # Try configured repo first, fallback to Qwen2.5-Coder on Hugging Face Serverless API if custom repo unsupported
+                        target_models = [self.repo_id, "Qwen/Qwen2.5-Coder-7B-Instruct", "meta-llama/Llama-3.2-3B-Instruct"]
+                        last_err = None
+                        for m_id in target_models:
+                            payload = {
+                                "model": m_id,
+                                "messages": [
+                                    {"role": "system", "content": "You are a Text-to-SQL expert writing DuckDB SQL queries."},
+                                    {"role": "user", "content": prompt_text}
+                                ],
+                                "temperature": 0.01,
+                                "max_tokens": 512
+                            }
+                            try:
+                                resp = requests.post(self.url, headers=headers, json=payload, timeout=30)
+                                if resp.status_code == 200:
+                                    data = resp.json()
+                                    return data["choices"][0]["message"]["content"]
+                                else:
+                                    last_err = f"HTTP {resp.status_code}: {resp.text}"
+                            except Exception as ex:
+                                last_err = str(ex)
+                        raise RuntimeError(f"HuggingFace API Error: {last_err}")
 
                 self.hf_llm = CustomHFClient(self.hf_repo, self.hf_token)
                 self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
