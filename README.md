@@ -126,21 +126,22 @@ Text2SQL-MCP-Agent/
 │   ├── sandbox.py                      # SQLGlot AST Validator & Read-Only DuckDB Sandbox
 │   └── mcp_server.py                   # FastMCP server exposing tools & resources
 └── tests/
-    ├── test_edge_cases.py              # Edge-case evaluation test suite
+    ├── test_hermetic_workflow.py       # Hermetic offline workflow & mock LLM tests
     ├── test_guardrails.py              # Semantic constraint guardrail unit tests
     ├── test_validator.py               # AST validator unit tests
-    └── test_sandbox.py                 # Query sandbox unit tests
+    ├── test_sandbox.py                 # Query sandbox unit tests
+    └── test_edge_cases.py              # End-to-end edge-case evaluation suite
 ```
 
 ---
 
 ## Evals & Verification
 
-Run the automated test suite to verify AST security guardrails, dual-intent routing, and execution sandbox safety:
+Run the hermetic offline test suite to verify AST security guardrails, state machine transitions, self-correction loops, and execution sandbox safety without live network calls:
 ```bash
 pytest
 ```
-*Current test suite result: **17/17 tests passing in hermetic execution (100% success)**.*
+*Current test suite result: **20/20 tests passing in 100% hermetic offline execution**.*
 
 ---
 
