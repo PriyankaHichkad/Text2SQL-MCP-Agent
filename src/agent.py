@@ -18,6 +18,7 @@ class AgentState:
     pruned_catalog: Dict[str, Any] = field(default_factory=dict)
     join_hints: List[str] = field(default_factory=list)
     semantic_context: str = ""
+    connection: Any = field(default=None, repr=False, compare=False)
     
     generated_sql: str = ""
     clean_sql: str = ""
@@ -143,7 +144,8 @@ Rules:
         return state
 
     def validate_and_execute_node(self, state: AgentState, connection: duckdb.DuckDBPyConnection = None) -> AgentState:
-        success, df_res, clean_sql, exec_err = self.sandbox.execute_query(state.generated_sql, connection=connection)
+        conn = connection or getattr(state, "connection", None)
+        success, df_res, clean_sql, exec_err = self.sandbox.execute_query(state.generated_sql, connection=conn)
         state.is_valid = success or (exec_err == "")
         state.clean_sql = clean_sql
         state.execution_success = success
@@ -184,10 +186,12 @@ Rules:
                 return state
 
         # 3. Categorical Value Alignment Check (Schema linking matched values)
-        if state.linked_schema:
-            for tbl_info in state.linked_schema.values():
+        schema_cat = state.pruned_catalog or state.catalog
+        if schema_cat:
+            for tbl_info in schema_cat.values():
                 for col in tbl_info.get("columns", []):
-                    for sample_val in col.get("samples", []):
+                    samples = col.get("samples") or col.get("sample_values") or []
+                    for sample_val in samples:
                         val_str = str(sample_val).strip()
                         if val_str and len(val_str) > 2 and val_str.lower() in q_lower:
                             if val_str.upper() not in sql_upper and val_str.lower() not in sql_upper.lower():
@@ -309,15 +313,13 @@ class Text2SQLWorkflow:
 
     def run(self, question: str, connection: duckdb.DuckDBPyConnection = None) -> AgentState:
         catalog = self.catalog_profiler.inspect_schema(connection=connection)
-        state = AgentState(question=question, catalog=catalog)
+        initial_state = AgentState(question=question, catalog=catalog, connection=connection)
 
-        state = self.nodes.link_schema_node(state)
-        state = self.nodes.generate_sql_node(state)
-        state = self.nodes.validate_and_execute_node(state, connection=connection)
+        res = self.app.invoke(initial_state)
 
-        while not state.execution_success and state.retry_count < state.max_retries:
-            state = self.nodes.self_correct_node(state)
-            state = self.nodes.validate_and_execute_node(state, connection=connection)
-
-        state = self.nodes.format_answer_node(state)
-        return state
+        if isinstance(res, dict):
+            fields = {k: v for k, v in res.items() if k in AgentState.__dataclass_fields__}
+            return AgentState(**fields)
+        elif isinstance(res, AgentState):
+            return res
+        return initial_state
