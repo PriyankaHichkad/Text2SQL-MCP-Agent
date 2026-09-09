@@ -127,6 +127,7 @@ Text2SQL-MCP-Agent/
 │   └── mcp_server.py                   # FastMCP server exposing tools & resources
 └── tests/
     ├── test_edge_cases.py              # Edge-case evaluation test suite
+    ├── test_guardrails.py              # Semantic constraint guardrail unit tests
     ├── test_validator.py               # AST validator unit tests
     └── test_sandbox.py                 # Query sandbox unit tests
 ```
@@ -139,7 +140,7 @@ Run the automated test suite to verify AST security guardrails, dual-intent rout
 ```bash
 pytest
 ```
-*Current test suite result: **14/14 tests passing in hermetic execution (100% success)**.*
+*Current test suite result: **17/17 tests passing in hermetic execution (100% success)**.*
 
 ---
 
