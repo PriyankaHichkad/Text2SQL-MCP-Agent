@@ -2,7 +2,8 @@
 
 > **A modular, high-performance Text-to-SQL AI agent and Streamlit copilot powered by LangGraph, LangChain, native MCP server integration, dynamic CSV schema linking, and read-only AST safety guardrails.**
 
-**Live Web App**: [text2sql-mcp-agent.streamlit.app](https://text2sql-mcp-agent-jxzsy3qnkeqmyfeas6ekkz.streamlit.app)
+**Live Web App**: [text2sql-mcp-agent.streamlit.app](https://text2sql-mcp-agent-jxzsy3qnkeqmyfeas6ekkz.streamlit.app)  
+**Live FastMCP Cloud Endpoint**: [`https://xenial-moccasin-ladybug.fastmcp.app/mcp`](https://xenial-moccasin-ladybug.fastmcp.app/mcp)
 
 ---
 
@@ -82,17 +83,34 @@ Run the interactive copilot dashboard:
 streamlit run src/app.py
 ```
 
-### 4. Launch MCP Server
-Run the Model Context Protocol server for Claude Desktop / IDEs:
+### 4. Connect to MCP Server (Cloud or Local)
+
+#### Option A: Remote FastMCP Cloud Deployment (Zero Setup)
+Connect Claude Desktop, Cursor, or any MCP client directly to the deployed cloud server:
+- **Cloud MCP URL**: `https://xenial-moccasin-ladybug.fastmcp.app/mcp`
+
+**Claude Desktop Configuration (`claude_desktop_config.json`):**
+```json
+{
+  "mcpServers": {
+    "text2sql-cloud": {
+      "url": "https://xenial-moccasin-ladybug.fastmcp.app/mcp"
+    }
+  }
+}
+```
+
+#### Option B: Local FastMCP Server (`stdio`)
+Run the local Model Context Protocol server:
 ```bash
 python -m src.mcp_server
 ```
 
-#### Claude Desktop Integration (`claude_desktop_config.json`):
+**Claude Desktop Configuration (`claude_desktop_config.json`):**
 ```json
 {
   "mcpServers": {
-    "text2sql-agent": {
+    "text2sql-local": {
       "command": "python",
       "args": ["-m", "src.mcp_server"],
       "cwd": "/path/to/Text2SQL-MCP-Agent"
