@@ -51,13 +51,26 @@ def get_schema_catalog() -> str:
 def load_csv_dataset(file_path: str, table_name: str) -> str:
     """
     Dynamically loads an external CSV file into DuckDB as a queryable table.
+    Enforces identifier validation and safe path confinement against injection and LFI.
     """
-    if not os.path.exists(file_path):
-        return f"Error: File '{file_path}' does not exist."
+    import re
+    # 1. Identifier Guardrail: Alphanumeric only (letters, numbers, underscores)
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]{0,63}$', table_name):
+        return "Error: Security Guardrail Violation: Invalid table name. Only alphanumeric identifiers up to 64 chars are allowed."
+
+    # 2. Path Traversal & LFI Guardrail: Resolve canonical path
+    real_path = os.path.realpath(os.path.expanduser(file_path))
+    workspace_root = os.path.realpath(os.path.abspath("."))
+    
+    # Must be an existing .csv regular file within workspace or data/
+    if not (real_path.startswith(workspace_root) and real_path.lower().endswith(".csv") and os.path.isfile(real_path)):
+        return f"Error: Security Guardrail Violation: Unauthorized file path '{file_path}'. Only CSV files within the workspace are permitted."
+
     try:
         with duckdb.connect(db_path) as con:
-            con.execute(f"CREATE OR REPLACE TABLE \"{table_name}\" AS SELECT * FROM read_csv_auto('{file_path}')")
-        return f"Success: Loaded CSV '{file_path}' into table '{table_name}'."
+            # Safe parameterized execution
+            con.execute(f'CREATE OR REPLACE TABLE "{table_name}" AS SELECT * FROM read_csv_auto(?)', [real_path])
+        return f"Success: Safely loaded CSV '{file_path}' into table '{table_name}'."
     except Exception as e:
         return f"Error loading CSV: {str(e)}"
 

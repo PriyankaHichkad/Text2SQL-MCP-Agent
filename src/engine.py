@@ -252,7 +252,7 @@ class LLMRouter:
                                 resp = requests.post(self.url, headers=headers, json=payload, timeout=30)
                                 if resp.status_code == 200:
                                     data = resp.json()
-                                    return data["choices"][0]["message"]["content"]
+                                    return data["choices"][0]["message"]["content"], m_id
                                 else:
                                     last_err = f"Model {m_id} HTTP {resp.status_code}: {resp.text}"
                             except Exception as ex:
@@ -288,8 +288,11 @@ class LLMRouter:
         # Try Hugging Face first
         if self.hf_llm:
             try:
-                res = self.hf_llm.generate(prompt)
-                self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
+                res, model_used = self.hf_llm.generate(prompt)
+                if model_used == self.hf_repo:
+                    self.active_engine = f"HuggingFace Fine-Tuned ({self.hf_repo})"
+                else:
+                    self.active_engine = f"HuggingFace ({model_used})"
                 return str(res).strip()
             except Exception as e:
                 print(f"Notice: Hugging Face call failed ({e}). Falling back to Gemini...")

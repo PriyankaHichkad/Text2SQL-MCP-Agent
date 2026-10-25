@@ -62,3 +62,53 @@ def test_hermetic_self_correction_loop(mock_generate, db_conn):
     assert mock_generate.call_count == 2
     assert res.execution_success is True
     assert res.retry_count == 1
+
+@patch.object(LLMRouter, "generate")
+def test_hermetic_retry_exhaustion(mock_generate, db_conn):
+    """
+    Hermetic Test: Verifies that after reaching max_retries (2 retries),
+    the workflow cleanly terminates with execution_success=False and zero confidence.
+    """
+    mock_generate.return_value = "```sql\nSELECT broken_syntax_col FROM non_existent_tbl;\n```"
+    
+    wf = Text2SQLWorkflow()
+    res = wf.run("use a cte to trigger max retries", connection=db_conn)
+    
+    assert res.execution_success is False
+    assert res.retry_count == 2
+    assert res.confidence_score == 0.0
+    assert "Query Execution Failure" in res.final_answer
+
+def test_hermetic_max_rows_truncation_enforcement(db_conn):
+    """
+    Hermetic Test: Verifies that QuerySandbox automatically applies max_rows safety
+    limits on unbounded SELECT queries.
+    """
+    from src.sandbox import QuerySandbox
+    sandbox = QuerySandbox(max_rows=1)
+    
+    # Query without LIMIT gets truncated by sandbox execution to max_rows
+    success, df, clean_sql, err = sandbox.execute_query(
+        "SELECT * FROM ecommerce_benchmark", connection=db_conn
+    )
+    assert success is True
+    assert len(df) == 1
+    assert err == ""
+
+def test_hermetic_ast_rejects_forbidden_ddl():
+    """
+    Hermetic Test: Verifies that SQLValidator AST blocks forbidden DDL/DML expressions.
+    """
+    from src.sandbox import SQLValidator
+    validator = SQLValidator(dialect="duckdb")
+    
+    malicious_queries = [
+        "ALTER TABLE ecommerce_benchmark ADD COLUMN hacked INT;",
+        "CREATE TABLE backdoor (id INT);",
+        "INSERT INTO ecommerce_benchmark VALUES ('Fake', 'Nowhere', 0, 0, '2025-01-01');"
+    ]
+    for q in malicious_queries:
+        is_valid, _, err = validator.validate(q)
+        assert is_valid is False
+        assert "Security Guardrail Violation" in err
+
