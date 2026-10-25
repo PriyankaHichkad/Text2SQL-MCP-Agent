@@ -57,14 +57,14 @@ REPRESENTATIVE_TEST_CASES = [
     {
         "id": 8,
         "category": "Value-Aware Categorical Filtering",
-        "question": "Total sales for Technology products shipped with First Class payment or status",
-        "reference_sql": "SELECT SUM(net_amount) AS total_sales FROM orders WHERE category = 'Technology';"
+        "question": "Total sales for Technology products with completed order status",
+        "reference_sql": "SELECT SUM(net_amount) AS total_sales FROM orders WHERE category = 'Technology' AND order_status = 'completed';"
     },
     {
         "id": 9,
         "category": "N-th Ordinal Ranking (LIMIT / OFFSET)",
-        "question": "What was the 2nd highest net order amount in 2025?",
-        "reference_sql": "SELECT net_amount FROM orders WHERE YEAR(TRY_CAST(order_date AS DATE)) = 2025 ORDER BY net_amount DESC LIMIT 1 OFFSET 1;"
+        "question": "What was the 2nd highest distinct net order amount in 2025?",
+        "reference_sql": "SELECT DISTINCT net_amount FROM orders WHERE YEAR(TRY_CAST(order_date AS DATE)) = 2025 ORDER BY net_amount DESC LIMIT 1 OFFSET 1;"
     },
     {
         "id": 10,
@@ -98,23 +98,41 @@ def run_representative_eval():
         exec_ok = state.execution_success
         generated_sql = state.clean_sql or state.generated_sql
         
-        print(f"Engine   : {state.used_engine}")
-        print(f"Executed : {'✅ SUCCESS' if exec_ok else '❌ FAILED'}")
-        print(f"SQL      : {generated_sql.strip()[:100]}...")
+        # Ground-Truth Execution Accuracy (EX %): Compare query result against reference SQL
+        exact_match = False
+        try:
+            ref_df = con.execute(item['reference_sql']).fetchdf()
+            if exec_ok and state.result_df is not None:
+                gen_df = state.result_df
+                # Normalize column names & shape comparison
+                if gen_df.shape == ref_df.shape:
+                    if (gen_df.values == ref_df.values).all() or (pd.to_numeric(gen_df.iloc[:, 0], errors='coerce').fillna(0).round(2).equals(pd.to_numeric(ref_df.iloc[:, 0], errors='coerce').fillna(0).round(2))):
+                        exact_match = True
+        except Exception:
+            exact_match = False
+
+        print(f"Engine     : {state.used_engine}")
+        print(f"Executed   : {'✅ SUCCESS' if exec_ok else '❌ FAILED'}")
+        print(f"EX Match   : {'🎯 MATCH (EX)' if exact_match else '⚠️ MISMATCH / PENDING'}")
+        print(f"SQL        : {generated_sql.strip()[:100]}...")
         if not exec_ok:
-            print(f"Error    : {state.execution_error}")
+            print(f"Error      : {state.execution_error}")
             
         results.append({
             "id": item['id'],
             "category": item['category'],
             "success": exec_ok,
+            "exact_match": exact_match,
             "engine": state.used_engine,
             "sql": generated_sql
         })
 
-    success_count = sum(1 for r in results if r["success"])
+    valid_count = sum(1 for r in results if r["success"])
+    ex_count = sum(1 for r in results if r["exact_match"])
     print("\n" + "=" * 80)
-    print(f"🏆 EVALUATION SUMMARY: {success_count}/10 QUERIES EXECUTED SUCCESSFULLY ({success_count * 10}%)")
+    print(f"🏆 EVALUATION SUMMARY:")
+    print(f"   • Valid Execution Rate (%): {valid_count}/10 ({valid_count * 10}%)")
+    print(f"   • Ground-Truth Accuracy (EX %): {ex_count}/10 ({ex_count * 10}%)")
     print("=" * 80)
 
 if __name__ == "__main__":

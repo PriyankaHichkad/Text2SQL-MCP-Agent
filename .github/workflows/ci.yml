@@ -27,10 +27,7 @@ jobs:
       run: |
         python scripts/seed_db.py
 
-    - name: Run Test Suite
-      env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        HUGGINGFACEHUB_API_TOKEN: ${{ secrets.HUGGINGFACEHUB_API_TOKEN }}
-        HF_MODEL_REPO: ${{ secrets.HF_MODEL_REPO }}
+    - name: Run Test Suite (Hermetic)
       run: |
         pytest
+

@@ -51,25 +51,37 @@ def get_schema_catalog() -> str:
 def load_csv_dataset(file_path: str, table_name: str) -> str:
     """
     Dynamically loads an external CSV file into DuckDB as a queryable table.
-    Enforces identifier validation and safe path confinement against injection and LFI.
+    Enforces identifier validation, protected table safeguarding, and safe path confinement.
     """
     import re
-    # 1. Identifier Guardrail: Alphanumeric only (letters, numbers, underscores)
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]{0,63}$', table_name):
+    from pathlib import Path
+
+    # 1. Identifier Guardrail: strict regex without trailing newlines
+    if not re.fullmatch(r'^[a-zA-Z_][a-zA-Z0-9_]{0,63}$', table_name):
         return "Error: Security Guardrail Violation: Invalid table name. Only alphanumeric identifiers up to 64 chars are allowed."
 
-    # 2. Path Traversal & LFI Guardrail: Resolve canonical path
-    real_path = os.path.realpath(os.path.expanduser(file_path))
-    workspace_root = os.path.realpath(os.path.abspath("."))
-    
-    # Must be an existing .csv regular file within workspace or data/
-    if not (real_path.startswith(workspace_root) and real_path.lower().endswith(".csv") and os.path.isfile(real_path)):
-        return f"Error: Security Guardrail Violation: Unauthorized file path '{file_path}'. Only CSV files within the workspace are permitted."
+    # 2. Protected Table Safeguard: Prevent overwriting core database tables
+    PROTECTED_TABLES = {"ecommerce_benchmark", "sample_warehouse", "orders", "customers", "products"}
+    if table_name.lower() in PROTECTED_TABLES:
+        return f"Error: Security Guardrail Violation: Overwriting core protected table '{table_name}' is forbidden."
+
+    # 3. Path Traversal & LFI Guardrail: Resolve canonical path using Path.is_relative_to
+    try:
+        real_path = Path(file_path).expanduser().resolve()
+        workspace_root = Path(".").resolve()
+        if not real_path.is_relative_to(workspace_root):
+            return f"Error: Security Guardrail Violation: Unauthorized file path '{file_path}'. Path must be inside the workspace."
+    except Exception:
+        return f"Error: Security Guardrail Violation: Invalid or unauthorized file path '{file_path}'."
+
+    # Must be an existing .csv regular file
+    if not (real_path.is_file() and real_path.suffix.lower() == ".csv"):
+        return f"Error: File '{file_path}' must be an existing regular .csv file."
 
     try:
         with duckdb.connect(db_path) as con:
             # Safe parameterized execution
-            con.execute(f'CREATE OR REPLACE TABLE "{table_name}" AS SELECT * FROM read_csv_auto(?)', [real_path])
+            con.execute(f'CREATE OR REPLACE TABLE "{table_name}" AS SELECT * FROM read_csv_auto(?)', [str(real_path)])
         return f"Success: Safely loaded CSV '{file_path}' into table '{table_name}'."
     except Exception as e:
         return f"Error loading CSV: {str(e)}"

@@ -14,10 +14,16 @@ FORBIDDEN_EXPRESSIONS = (
     exp.Command,
 )
 
+FORBIDDEN_FUNCTIONS = {
+    "read_csv", "read_csv_auto", "read_parquet", "read_json", "read_blob",
+    "scan_csv", "glob", "read_text", "sniff_csv", "sqlite_scan", "postgres_scan",
+    "attach", "install", "load", "system", "system_execute", "copy"
+}
+
 class SQLValidator:
     """
     AST Static Validator using SQLGlot to enforce single read-only SELECT queries
-    and guard against SQL injection, DDL, DML, and multi-statement queries.
+    and guard against SQL injection, DDL, DML, multi-statement queries, and unauthorized file reading.
     """
     def __init__(self, dialect: str = "duckdb"):
         self.dialect = dialect
@@ -64,6 +70,17 @@ class SQLValidator:
             if parsed_ast.find(forbidden_cls):
                 return False, clean_sql, f"Security Guardrail Violation: Forbidden operation '{forbidden_cls.__name__}' detected."
 
+        # Check for unauthorized table functions or filesystem reading functions
+        for func in parsed_ast.find_all((exp.Func, exp.Anonymous)):
+            fn_name = func.name.lower() if func.name else ""
+            if fn_name in FORBIDDEN_FUNCTIONS:
+                return False, clean_sql, f"Security Guardrail Violation: Unauthorized filesystem or table function '{fn_name}' is forbidden."
+
+        for table in parsed_ast.find_all(exp.Table):
+            t_name = table.name.lower() if table.name else ""
+            if t_name in FORBIDDEN_FUNCTIONS:
+                return False, clean_sql, f"Security Guardrail Violation: Unauthorized filesystem or table function '{t_name}' is forbidden."
+
         return True, parsed_ast.sql(dialect=self.dialect, pretty=True), ""
 
 
@@ -78,7 +95,7 @@ class QuerySandbox:
 
     def execute_query(self, sql_query: str, connection: duckdb.DuckDBPyConnection = None) -> Tuple[bool, pd.DataFrame, str, str]:
         """
-        Validates and executes SQL query safely.
+        Validates and executes SQL query safely with enforced row limit clamping.
         Returns: (success: bool, df_result: pd.DataFrame, clean_sql: str, error_message: str)
         """
         is_valid, clean_sql, val_error = self.validator.validate(sql_query)
@@ -90,11 +107,25 @@ class QuerySandbox:
         while clean_sql_no_semi.endswith(";"):
             clean_sql_no_semi = clean_sql_no_semi[:-1].strip()
 
-        # Check if scalar aggregate without GROUP BY
+        # Parse AST to inspect and clamp LIMIT if user specifies a limit exceeding max_rows
+        try:
+            parsed_ast = sqlglot.parse_one(clean_sql_no_semi, read=self.validator.dialect)
+            limit_ast = parsed_ast.find(exp.Limit)
+            if limit_ast and limit_ast.expression:
+                try:
+                    user_limit = int(limit_ast.expression.this)
+                    if user_limit > self.max_rows:
+                        limit_ast.set("expression", exp.Literal.number(self.max_rows))
+                        clean_sql_no_semi = parsed_ast.sql(dialect=self.validator.dialect)
+                except Exception:
+                    pass
+        except Exception:
+            limit_ast = None
+
         sql_upper = clean_sql_no_semi.upper()
         is_scalar_agg = any(fn in sql_upper for fn in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("]) and "GROUP BY" not in sql_upper
 
-        if not is_scalar_agg and "LIMIT" not in sql_upper:
+        if not is_scalar_agg and not limit_ast and "LIMIT" not in sql_upper:
             sql_to_run = f"{clean_sql_no_semi} LIMIT {self.max_rows}"
         else:
             sql_to_run = clean_sql_no_semi

@@ -77,14 +77,14 @@ def run_benchmark():
 
     avg_latency = total_latency_ms / total_queries
     ast_valid_pct = (valid_sql_count / total_queries) * 100.0
-    exec_accuracy_pct = (execution_success_count / total_queries) * 100.0
+    valid_exec_pct = (execution_success_count / total_queries) * 100.0
 
     print("\n" + "=" * 60)
     print("📊 BENCHMARK EVALUATION SUMMARY")
     print("=" * 60)
     print(f"Total Test Questions     : {total_queries}")
     print(f"AST Syntax Validity      : {ast_valid_pct:.1f}% ({valid_sql_count}/{total_queries})")
-    print(f"Execution Accuracy (EX %): {exec_accuracy_pct:.1f}% ({execution_success_count}/{total_queries})")
+    print(f"Valid Execution Rate (%) : {valid_exec_pct:.1f}% ({execution_success_count}/{total_queries})")
     print(f"Average Latency          : {avg_latency:.2f} ms")
     print("=" * 60)
 

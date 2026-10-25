@@ -15,7 +15,10 @@ def db_conn():
         con.execute(f"CREATE TABLE ecommerce_benchmark AS SELECT * FROM read_csv_auto('{benchmark_csv}')")
     return con
 
-def test_edge_case_percentage(db_conn):
+def test_edge_case_percentage(db_conn, monkeypatch):
+    # Hermetic mock: ensure deterministic offline execution without hitting external LLM APIs
+    mock_sql = "SELECT (COUNT(CASE WHEN category = 'Electronics' THEN 1 END) * 100.0 / COUNT(*)) AS percentage FROM ecommerce_benchmark"
+    monkeypatch.setattr("src.engine.LLMRouter.generate", lambda self, prompt: mock_sql)
     wf = Text2SQLWorkflow()
     res = wf.run("percentage of electronics sold from all the orders", connection=db_conn)
     assert res.execution_success

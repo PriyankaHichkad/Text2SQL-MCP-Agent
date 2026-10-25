@@ -135,7 +135,17 @@ class SchemaLinker:
             table_scores[tbl_name] = score
 
         top_tables = sorted(table_scores.keys(), key=lambda k: table_scores[k], reverse=True)
-        pruned_catalog = {tbl: catalog[tbl] for tbl in top_tables}
+        # Genuine schema pruning: retain only relevant tables with positive scores, capped at top 5
+        if len(catalog) > 3:
+            relevant_tables = [tbl for tbl in top_tables if table_scores[tbl] > 0]
+            if not relevant_tables:
+                relevant_tables = top_tables[:3]
+            else:
+                relevant_tables = relevant_tables[:5]
+        else:
+            relevant_tables = top_tables
+
+        pruned_catalog = {tbl: catalog[tbl] for tbl in relevant_tables}
         join_hints = self.infer_join_hints(pruned_catalog)
         return pruned_catalog, join_hints
 
